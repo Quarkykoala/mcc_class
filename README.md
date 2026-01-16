@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **MCC Letter Issuance System** is a secure platform designed to manage the drafting, approval, issuance, and verification of official letters.
+The **Ministry of City and Country (MCC) Letter Issuance System** is a secure platform designed to manage the drafting, approval, issuance, and verification of official letters.
 
 This system ensures:
 *   **Drafting Workflow**: Structured letter creation with context, departments, and tags.
@@ -10,6 +10,21 @@ This system ensures:
 *   **Atomic Issuance**: Letters are issued with immutable version snapshots and cryptographic content hashes.
 *   **Public Verification**: Issued letters can be verified by the public using a unique QR code or verification URL, ensuring authenticity and detecting revocations.
 *   **Security**: Role-Based Access Control (RBAC) and strict Row Level Security (RLS) on the database.
+
+## Workflow
+
+```mermaid
+graph LR
+    A[Draft Letter] --> B{Approval Needed?}
+    B -- Yes --> C[Committee / Approver Review]
+    C -- Rejected --> A
+    C -- Approved --> D[Ready for Issuance]
+    B -- No --> D
+    D --> E[Issue Letter]
+    E --> F[Generate Immutable Version]
+    F --> G[Generate QR Code & PDF]
+    G --> H[Public Verification]
+```
 
 ## Architecture
 
