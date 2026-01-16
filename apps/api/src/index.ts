@@ -344,18 +344,33 @@ app.get('/api/verify/:hash', async (req: Request, res: Response) => {
         return res.status(404).json({ valid: false, message: 'Invalid or unknown document hash.' });
     }
 
-    const approvals = versionRecord.letters?.approvals ?? [];
-    const committeeApprovals = (versionRecord.letters?.committee_approvals ?? []).map((approval: any) => ({
+    const letter = Array.isArray(versionRecord.letters)
+        ? versionRecord.letters[0]
+        : versionRecord.letters;
+    const normalizedLetter = letter
+        ? {
+            ...letter,
+            departments: Array.isArray(letter.departments) ? letter.departments[0] : letter.departments
+        }
+        : letter;
+    const issuances = Array.isArray(versionRecord.issuances)
+        ? versionRecord.issuances
+        : versionRecord.issuances
+            ? [versionRecord.issuances]
+            : [];
+
+    const approvals = letter?.approvals ?? [];
+    const committeeApprovals = (letter?.committee_approvals ?? []).map((approval: any) => ({
         ...approval,
         approved_at: approval.approved_at || approval.created_at
     }));
 
     const response = buildVerificationResponse({
         version_number: versionRecord.version_number,
-        letters: versionRecord.letters,
+        letters: normalizedLetter,
         approvals,
         committee_approvals: committeeApprovals,
-        issuances: versionRecord.issuances
+        issuances
     });
 
     res.json(response);
