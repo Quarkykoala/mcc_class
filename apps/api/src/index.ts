@@ -345,7 +345,7 @@ app.get('/api/committees', async (req: Request, res: Response) => {
     // Assuming committees table has a context column, or we just return all
     const query = supabase.from('committees').select('*');
     if (context) {
-        // query.eq('context', context); // If committees have context
+        query.eq('context', String(context));
     }
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
