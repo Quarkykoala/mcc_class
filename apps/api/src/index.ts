@@ -5,17 +5,34 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyApproverRole } from './auth-utils';
 import { buildContentHash, normalizeTagIds, generateIssuancePdf, buildVerificationResponse } from './letter-utils';
 import { handleLetterVersionUpdate } from './version-manager';
+import { authMiddleware } from './auth-middleware';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// CONFIG: Determine Mode
+const isHardMode = process.env.HARD_MODE === 'true' || process.env.NODE_ENV === 'production';
+
+if (isHardMode) {
+    console.log('🔒 STARTING IN HARD MODE (Production/Strict Security)');
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        console.error('CRITICAL: HARD_MODE requires SUPABASE_SERVICE_ROLE_KEY.');
+        process.exit(1);
+    }
+} else {
+    console.warn('⚠️  STARTING IN DEV MODE (Permissive if configured)');
+}
+
 const supabaseUrl = process.env.SUPABASE_URL;
+// In Hard Mode, we MUST use Service Role Key to bypass RLS (since we dropped "Public" policies).
+// In Dev Mode, we prefer Service Role but fallback to Anon (though Anon might now fail writes due to RLS).
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
 if (!supabaseUrl || !supabaseKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY for dev) must be set.');
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or AN_KEY) must be set.');
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -24,8 +41,12 @@ app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 
+// Public Route
+app.get('/', (req: Request, res: Response) => {
+    res.send(`API is running. Use <a href="${clientUrl}">${clientUrl}</a> for the web app.`);
+});
 
-// --- Master Lists ---
+// --- Master Lists (Public) ---
 
 app.get('/api/departments', async (req: Request, res: Response) => {
     const { context } = req.query;
@@ -51,20 +72,134 @@ app.get('/api/tags', async (req: Request, res: Response) => {
     res.json(data);
 });
 
-// --- Letters ---
+// --- Letters (Read Public/Mixed, Write Protected) ---
+
+app.get('/api/letters', async (req: Request, res: Response) => {
+    const { context } = req.query;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // Base Query
+    let query = supabase.from('letters').select(`
+        id, context, status, created_at,
+        departments (name),
+        letter_tags (
+            tags (name)
+        )
+    `, { count: 'exact' });
+
+    if (context) {
+        query = query.eq('context', String(context));
+    }
+
+    // Pagination
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+        data,
+        meta: {
+            total: count,
+            page,
+            limit,
+            hasMore: count ? to < count - 1 : false
+        }
+    });
+});
+
+app.get('/api/verify/:hash', async (req: Request, res: Response) => {
+    const { hash } = req.params;
+    const accessKey = process.env.VERIFY_ACCESS_KEY;
+    const providedKey = req.header('x-verify-key');
+
+    if (accessKey && accessKey !== providedKey) {
+        return res.status(401).json({ error: 'Verification requires authorized access.' });
+    }
+
+    const { data: versionRecord, error } = await supabase
+        .from('letter_versions')
+        .select(`
+            version_number,
+            letters (
+                context,
+                status,
+                departments (name),
+                approvals (approver_id, created_at),
+                committee_approvals (approver_id, committee_id, created_at)
+            ),
+            issuances (id)
+        `)
+        .eq('content_hash', hash)
+        .single();
+
+    if (error || !versionRecord) {
+        return res.status(404).json({ valid: false, message: 'Invalid or unknown document hash.' });
+    }
+
+    const letter = Array.isArray(versionRecord.letters) ? versionRecord.letters[0] : versionRecord.letters;
+
+    // REVOCATION CHECK ON VERIFY
+    if (letter && letter.status === 'REVOKED') {
+        return res.json({
+            valid: false,
+            status: 'REVOKED',
+            message: 'This document has been revoked by the issuing authority.'
+        });
+    }
+
+    const normalizedLetter = letter
+        ? {
+            ...letter,
+            departments: Array.isArray(letter.departments) ? letter.departments[0] : letter.departments
+        }
+        : letter;
+
+    const issuances = Array.isArray(versionRecord.issuances) ? versionRecord.issuances : (versionRecord.issuances ? [versionRecord.issuances] : []);
+    const approvals = (letter?.approvals ?? []).map((approval: any) => ({
+        ...approval,
+        approved_at: approval.created_at
+    }));
+    const committeeApprovals = (letter?.committee_approvals ?? []).map((approval: any) => ({
+        ...approval,
+        approved_at: approval.created_at
+    }));
+
+    const response = buildVerificationResponse({
+        version_number: versionRecord.version_number,
+        letters: normalizedLetter,
+        approvals,
+        committee_approvals: committeeApprovals,
+        issuances
+    });
+
+    res.json(response);
+});
+
+// --- AUTHENTICATED ROUTES ---
+// Apply Auth Middleware to everything below
+app.use(authMiddleware(supabase));
 
 app.post('/api/letters', async (req: Request, res: Response) => {
-    const { id, context, department_id, tag_ids, content, created_by } = req.body;
+    // RBAC: Any auth user can create draft? Lets assume yes for now, or check role.
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id, context, department_id, tag_ids, content } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    if (!content || !created_by) {
-        return res.status(400).json({ error: 'content and created_by are required.' });
+    if (!content) {
+        return res.status(400).json({ error: 'content is required.' });
     }
 
     if (id) {
+        // UPDATE
         const { data: currentLetter, error: letterError } = await supabase
             .from('letters')
-            .select('id, context, department_id, status')
+            .select('id, context, department_id, status, created_by')
             .eq('id', id)
             .single();
 
@@ -76,6 +211,11 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Only DRAFT letters can be edited.' });
         }
 
+        // RBAC: Only creator or admin can edit
+        const canEdit = currentLetter.created_by === userId || req.user?.roles.includes('ADMIN');
+        if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this draft.' });
+
+        // Update Content
         const { data: updateData, error: updateError } = await supabase
             .from('letters')
             .update({
@@ -96,25 +236,25 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             metadata: { context, department_id, content_length: content.length, source_ip }
         });
 
-        // Handle versioning
+        // FORCE VERSION SNAPSHOT ON EVERY UPDATE
         try {
-            await handleLetterVersionUpdate(supabase, id, content, created_by);
+            await handleLetterVersionUpdate(supabase, id, content, userId);
         } catch (versionError: any) {
             console.error('Versioning failed:', versionError);
-            // Versioning failure is critical for audit, so we block the response.
             return res.status(500).json({ error: 'Failed to create version snapshot: ' + versionError.message });
         }
 
         return res.json(updateData);
 
     } else {
+        // CREATE
         const { data, error } = await supabase
             .from('letters')
             .insert({
                 context,
                 department_id,
                 content,
-                created_by,
+                created_by: userId, // Use authenticated user
                 status: 'DRAFT',
                 source_ip
             })
@@ -132,6 +272,9 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             await supabase.from('letter_tags').insert(tagInserts);
         }
 
+        // Initial Version Snapshot
+        await handleLetterVersionUpdate(supabase, data.id, content, userId);
+
         await supabase.from('audit_logs').insert({
             action: 'CREATE',
             entity_type: 'LETTER',
@@ -143,39 +286,18 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     }
 });
 
-app.get('/api/letters', async (req: Request, res: Response) => {
-    const { context } = req.query;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    let query = supabase.from('letters').select(`
-        id, context, status, created_at,
-        departments (name),
-        letter_tags (
-            tags (name)
-        )
-    `).order('created_at', { ascending: false })
-      .range(from, to);
-
-    if (context) {
-        query = query.eq('context', String(context));
+    // RBAC Check
+    if (!req.user?.roles.includes('APPROVER') && !req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'User does not have permission to approve letters.' });
     }
 
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
-});
-
-app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { approver_id, comment } = req.body;
+    const { comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
-
-    // Future Security Note: In a production environment, approver_id should be derived
-    // from the authenticated session (e.g., req.user.id) rather than the request body
-    // to prevent IDOR attacks. For now, we validate the role of the provided ID.
 
     const { data: letter, error: fetchError } = await supabase
         .from('letters')
@@ -186,11 +308,6 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
-    const isApprover = await verifyApproverRole(supabase, approver_id);
-    if (!isApprover) {
-        return res.status(403).json({ error: 'User does not have permission to approve letters.' });
-    }
-
     const { error: updateError } = await supabase
         .from('letters')
         .update({ status: 'APPROVED' })
@@ -200,7 +317,7 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
 
     await supabase.from('approvals').insert({
         letter_id: id,
-        approver_id,
+        approver_id: userId, // Use Auth User
         comment,
         source_ip
     });
@@ -209,40 +326,51 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
         action: 'APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { approver_id, source_ip }
+        metadata: { approver_id: userId, source_ip }
     });
 
     res.json({ message: 'Letter approved successfully' });
 });
 
 app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    // RBAC Check
+    if (!req.user?.roles.includes('ISSUER') && !req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'User does not have permission to issue letters.' });
+    }
+
     const { id } = req.params;
-    const { issued_by, channel, printer_id } = req.body;
+    const { channel, printer_id } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     const { data: letter, error: fetchError } = await supabase
         .from('letters')
-        .select('*, departments(*), letter_tags(tags(*))')
+        .select('*, departments(*), letter_tags(tag_id)') // OPTIMIZED: Fetch only tag_id
         .eq('id', id)
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'APPROVED') return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
 
-    // Determine Version
-    const { data: versions, error: versionFetchError } = await supabase
+    // Determine Version logic
+    // We create a NEW version snapshot at issuance to protect the exact state.
+    // If a draft version exists with same content, fine, but issuance is a distinct event.
+
+    // 1. Get next version number
+    const { data: versions } = await supabase
         .from('letter_versions')
         .select('version_number')
         .eq('letter_id', id)
         .order('version_number', { ascending: false })
         .limit(1);
 
-    if (versionFetchError) return res.status(500).json({ error: versionFetchError.message });
-
     const nextVersion = (versions && versions.length > 0) ? versions[0].version_number + 1 : 1;
 
-    // Generate Content Hash
-    const tagIds = letter.letter_tags.map((lt: any) => lt.tags.id).sort();
+    // 2. Generate Hash (Canonical)
+    const tagIds = letter.letter_tags ? letter.letter_tags.map((lt: any) => lt.tag_id).sort() : [];
+
     const contentHash = buildContentHash({
         letterId: letter.id,
         versionNumber: nextVersion,
@@ -252,7 +380,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         content: letter.content
     });
 
-    // Create Version Snapshot
+    // 3. Create Version Snapshot
     const { data: newVersion, error: createVersionError } = await supabase
         .from('letter_versions')
         .insert({
@@ -260,15 +388,15 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
             version_number: nextVersion,
             content: letter.content,
             content_hash: contentHash,
-            created_by: issued_by
+            created_by: userId
         })
         .select()
         .single();
 
     if (createVersionError) return res.status(500).json({ error: createVersionError.message });
 
-    // Generate PDF
-    const verifyUrl = `https://mcc-letter-system.web.app/verify/${contentHash}`;
+    // 4. Generate PDF
+    const verifyUrl = `${clientUrl}/verify/${contentHash}`;
     const pdfOutput = await generateIssuancePdf({
         context: letter.context,
         departmentName: letter.departments?.name,
@@ -278,113 +406,77 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         issuedAt: new Date()
     });
 
-    // Update Status
+    // 5. Update Status
     await supabase.from('letters').update({ status: 'ISSUED' }).eq('id', id);
 
-    // Record Issuance
+    // 6. Record Issuance
     const { data: issuanceData, error: issuanceError } = await supabase.from('issuances').insert({
         letter_version_id: newVersion.id,
-        issued_by,
+        issued_by: userId,
         channel: channel || 'PRINT',
         qr_payload: verifyUrl,
         content_hash: contentHash
     }).select().single();
 
-    if (issuanceError) {
-        return res.status(500).json({ error: issuanceError.message });
-    }
+    if (issuanceError) return res.status(500).json({ error: issuanceError.message });
 
-    // Print Audit
+    // 7. Print Audit
     if (channel === 'PRINT') {
-        await supabase.from('print_audits').insert({
+        supabase.from('print_audits').insert({
             issuance_id: issuanceData.id,
             printer_id: printer_id || 'DEFAULT',
-            status: 'SUCCESS', // Mock success
-            printed_by: issued_by,
+            status: 'SUCCESS',
+            printed_by: userId,
             source_ip
-        });
+        }).then(); // Fire and forget promise
     }
 
     await supabase.from('audit_logs').insert({
         action: 'ISSUE',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { issued_by, channel, content_hash: contentHash }
+        metadata: { issued_by: userId, channel, content_hash: contentHash }
     });
 
     res.json({ message: 'Letter issued', pdf: pdfOutput, verifyUrl });
 });
 
-app.get('/api/verify/:hash', async (req: Request, res: Response) => {
-    const { hash } = req.params;
-    const accessKey = process.env.VERIFY_ACCESS_KEY;
-    const providedKey = req.header('x-verify-key');
+app.post('/api/letters/:id/revoke', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    if (accessKey && accessKey !== providedKey) {
-        return res.status(401).json({ error: 'Verification requires authorized access.' });
+    // RBAC: Admin or Issuer
+    if (!req.user?.roles.includes('ADMIN') && !req.user?.roles.includes('ISSUER')) {
+        return res.status(403).json({ error: 'Not authorized to revoke letters.' });
     }
 
-    const { data: versionRecord, error } = await supabase
-        .from('letter_versions')
-        .select(`
-            version_number,
-            letters (
-                context,
-                status,
-                departments (name),
-                approvals (approver_id, approved_at),
-                committee_approvals (approver_id, committee_id, created_at)
-            ),
-            issuances (id)
-        `)
-        .eq('content_hash', hash)
-        .single();
+    const { id } = req.params;
+    const source_ip = req.ip || '0.0.0.0';
 
-    if (error || !versionRecord) {
-        return res.status(404).json({ valid: false, message: 'Invalid or unknown document hash.' });
-    }
+    await supabase.from('letters').update({ status: 'REVOKED' }).eq('id', id);
 
-    const letter = Array.isArray(versionRecord.letters)
-        ? versionRecord.letters[0]
-        : versionRecord.letters;
-    const normalizedLetter = letter
-        ? {
-            ...letter,
-            departments: Array.isArray(letter.departments) ? letter.departments[0] : letter.departments
-        }
-        : letter;
-    const issuances = Array.isArray(versionRecord.issuances)
-        ? versionRecord.issuances
-        : versionRecord.issuances
-            ? [versionRecord.issuances]
-            : [];
-
-    const approvals = letter?.approvals ?? [];
-    const committeeApprovals = (letter?.committee_approvals ?? []).map((approval: any) => ({
-        ...approval,
-        approved_at: approval.approved_at || approval.created_at
-    }));
-
-    const response = buildVerificationResponse({
-        version_number: versionRecord.version_number,
-        letters: normalizedLetter,
-        approvals,
-        committee_approvals: committeeApprovals,
-        issuances
+    await supabase.from('audit_logs').insert({
+        action: 'REVOKE',
+        entity_type: 'LETTER',
+        entity_id: id,
+        metadata: { revoked_by: userId, source_ip }
     });
 
-    res.json(response);
+    res.json({ message: 'Letter revoked.' });
 });
 
 app.post('/api/acknowledgements', async (req: Request, res: Response) => {
-    const { letter_id, job_reference, file_url, captured_by } = req.body;
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { letter_id, job_reference, file_url } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     const { error } = await supabase.from('acknowledgements').insert({
         letter_id,
         job_reference,
         file_url,
-        captured_by,
+        captured_by: userId,
         source_ip
     });
 
@@ -394,7 +486,7 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
         action: 'ACKNOWLEDGE',
         entity_type: 'LETTER',
         entity_id: letter_id,
-        metadata: { job_reference, file_url, captured_by }
+        metadata: { job_reference, file_url, captured_by: userId }
     });
 
     res.json({ message: 'Acknowledgement recorded' });
@@ -419,7 +511,10 @@ app.get('/api/email-links', async (req: Request, res: Response) => {
 });
 
 app.post('/api/email-links', async (req: Request, res: Response) => {
-    const { letter_id, job_reference, sender, subject, body_excerpt, received_at, classified_by } = req.body;
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { letter_id, job_reference, sender, subject, body_excerpt, received_at } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     if (!letter_id && !job_reference) {
@@ -435,7 +530,7 @@ app.post('/api/email-links', async (req: Request, res: Response) => {
             subject,
             body_excerpt,
             received_at,
-            classified_by,
+            classified_by: userId,
             source_ip
         })
         .select()
@@ -467,7 +562,6 @@ app.get('/api/audit-logs', async (req: Request, res: Response) => {
 
 app.get('/api/committees', async (req: Request, res: Response) => {
     const { context } = req.query;
-    // Assuming committees table has a context column, or we just return all
     const query = supabase.from('committees').select('*');
     if (context) {
         query.eq('context', String(context));
@@ -478,8 +572,17 @@ app.get('/api/committees', async (req: Request, res: Response) => {
 });
 
 app.post('/api/letters/:id/committee-approve', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    // RBAC: Check if user is Committee Member (TODO: Schema for committee members?)
+    // For now, allow APPROVER/ADMIN
+    if (!req.user?.roles.includes('APPROVER') && !req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'Permission denied.' });
+    }
+
     const { id } = req.params;
-    const { committee_id, approver_id, comment } = req.body;
+    const { committee_id, comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     const { data: letter, error: fetchError } = await supabase
@@ -501,7 +604,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     await supabase.from('committee_approvals').insert({
         letter_id: id,
         committee_id,
-        approver_id, // Chair or authorized member
+        approver_id: userId,
         metadata: { comment, source_ip }
     });
 
@@ -509,7 +612,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
         action: 'COMMITTEE_APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { committee_id, approver_id, source_ip }
+        metadata: { committee_id, approver_id: userId, source_ip }
     });
 
     res.json({ message: 'Letter approved by Committee successfully' });
