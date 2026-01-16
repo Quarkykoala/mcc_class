@@ -404,14 +404,36 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     }
 
     // 4. Generate PDF (after successful issuance)
-    const pdfOutput = await generateIssuancePdf({
-        context: letter.context,
-        departmentName: letter.departments?.name,
-        content: letter.content,
-        contentHash,
-        verificationUrl: verifyUrl,
-        issuedAt: new Date()
-    });
+    let pdfOutput = '';
+    try {
+        pdfOutput = await generateIssuancePdf({
+            context: letter.context,
+            departmentName: letter.departments?.name,
+            content: letter.content,
+            contentHash,
+            verificationUrl: verifyUrl,
+            issuedAt: new Date()
+        });
+
+        // Update pdf_status to READY
+        await supabase
+            .from('issuances')
+            .update({ pdf_status: 'READY' })
+            .eq('id', rpcResult.issuance_id);
+
+    } catch (pdfError) {
+        console.error('PDF Generation Failed:', pdfError);
+         // Update pdf_status to FAILED
+        await supabase
+            .from('issuances')
+            .update({ pdf_status: 'FAILED' })
+            .eq('id', rpcResult.issuance_id);
+
+        // Return success for issuance but empty PDF (or error indication)
+        // Since issuance is atomic and committed, we technically "issued" it.
+        // We warn the user.
+        return res.json({ message: 'Letter issued but PDF generation failed.', verifyUrl, pdf: null });
+    }
 
     res.json({ message: 'Letter issued', pdf: pdfOutput, verifyUrl });
 });
@@ -557,6 +579,21 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     // RBAC: Check if user is Committee Member
     // Admin can always approve. Otherwise, check committee membership.
     if (!req.user?.roles.includes('ADMIN')) {
+        // Validation: Check if letter context matches committee context
+        // (This is an indirect check since we can't link letter->committee directly without schema change)
+        const { data: committee } = await supabase
+            .from('committees')
+            .select('context')
+            .eq('id', committee_id)
+            .single();
+
+        // Note: We don't block if committee fetch fails (could be RLS or bad ID),
+        // but the membership check below will fail anyway if ID is invalid.
+        // If committee exists, we verify context matches letter.
+        if (committee && committee.context !== letter.context) {
+             return res.status(400).json({ error: 'Committee context does not match letter context.' });
+        }
+
         const { data: member, error: memberError } = await supabase
             .from('committee_members')
             .select('user_id')

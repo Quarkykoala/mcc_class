@@ -9,6 +9,8 @@ CREATE TABLE committee_members (
 ALTER TABLE committee_members ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Internal Read Access" ON committee_members FOR SELECT TO authenticated USING (true);
 
+-- Add pdf_status to issuances
+ALTER TABLE issuances ADD COLUMN pdf_status TEXT DEFAULT 'PENDING';
 
 -- RPC for atomic issuance
 CREATE OR REPLACE FUNCTION issue_letter(
@@ -32,10 +34,11 @@ DECLARE
     v_version_id UUID;
     v_issuance_id UUID;
 BEGIN
-    -- 1. Check Letter Status
+    -- 1. Check Letter Status (with lock)
     SELECT status INTO v_letter_status
     FROM letters
-    WHERE id = p_letter_id;
+    WHERE id = p_letter_id
+    FOR UPDATE;
 
     IF v_letter_status IS NULL THEN
         RAISE EXCEPTION 'Letter not found';
@@ -67,9 +70,9 @@ BEGIN
 
     -- 5. Record Issuance
     INSERT INTO issuances (
-        letter_version_id, issued_by, channel, qr_payload, content_hash
+        letter_version_id, issued_by, channel, qr_payload, content_hash, pdf_status
     ) VALUES (
-        v_version_id, p_issuer_id, p_channel::issuance_channel, p_qr_payload, p_content_hash
+        v_version_id, p_issuer_id, p_channel::issuance_channel, p_qr_payload, p_content_hash, 'PENDING'
     ) RETURNING id INTO v_issuance_id;
 
     -- 6. Print Audit
