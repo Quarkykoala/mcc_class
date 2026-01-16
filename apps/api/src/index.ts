@@ -2,8 +2,9 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { buildContentHash, normalizeTagIds } from './letter-utils';
 import { verifyApproverRole } from './auth-utils';
+import { buildContentHash, normalizeTagIds, generateIssuancePdf } from './letter-utils';
+import { handleLetterVersionUpdate } from './version-manager';
 
 dotenv.config();
 
@@ -79,6 +80,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             .from('letters')
             .update({
                 department_id: department_id || currentLetter.department_id,
+                content: content,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)
@@ -94,7 +96,14 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             metadata: { context, department_id, content_length: content.length, source_ip }
         });
 
-        // Versioning would go here
+        // Handle versioning
+        try {
+            await handleLetterVersionUpdate(supabase, id, content, created_by);
+        } catch (versionError: any) {
+            console.error('Versioning failed:', versionError);
+            // Versioning failure is critical for audit, so we block the response.
+            return res.status(500).json({ error: 'Failed to create version snapshot: ' + versionError.message });
+        }
 
         return res.json(updateData);
 
@@ -136,13 +145,19 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     let query = supabase.from('letters').select(`
-        *,
+        id, context, status, created_at,
         departments (name),
         letter_tags (
             tags (name)
         )
-    `).order('created_at', { ascending: false });
+    `).order('created_at', { ascending: false })
+      .range(from, to);
 
     if (context) {
         query = query.eq('context', String(context));
@@ -226,22 +241,15 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     });
 
     // Generate PDF
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text('EVIDENCE-BACKED SYSTEM LETTERHEAD', 20, 20);
-    doc.setFontSize(14);
-    doc.text(`Department: ${letter.departments?.name}`, 20, 40);
-    doc.text(`Context: ${letter.context}`, 20, 50);
-    doc.setFontSize(12);
-    doc.text(letter.content, 20, 70);
-
-    // QR Code
     const verifyUrl = `https://mcc-letter-system.web.app/verify/${contentHash}`;
-    const qrDataUrl = await QRCode.toDataURL(verifyUrl);
-    doc.addImage(qrDataUrl, 'PNG', 150, 20, 40, 40);
-    doc.text(contentHash.substring(0, 16) + '...', 150, 65);
-
-    const pdfOutput = doc.output('datauristring');
+    const pdfOutput = await generateIssuancePdf({
+        context: letter.context,
+        departmentName: letter.departments?.name,
+        content: letter.content,
+        contentHash,
+        verificationUrl: verifyUrl,
+        issuedAt: new Date()
+    });
 
     // Update Status
     await supabase.from('letters').update({ status: 'ISSUED' }).eq('id', id);
@@ -353,7 +361,7 @@ app.get('/api/committees', async (req: Request, res: Response) => {
     // Assuming committees table has a context column, or we just return all
     const query = supabase.from('committees').select('*');
     if (context) {
-        // query.eq('context', context); // If committees have context
+        query.eq('context', String(context));
     }
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
@@ -408,6 +416,10 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-app.listen(port, () => {
-    console.log(`API server running on http://localhost:${port}`);
-});
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`API server running on http://localhost:${port}`);
+    });
+}
+
+export { app };
