@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Ministry of City and Country (MCC) Letter Issuance System** is a secure platform designed to manage the drafting, approval, issuance, and verification of official letters.
+The **MCC Letter Issuance System** is a secure platform designed to manage the drafting, approval, issuance, and verification of official letters.
 
 This system ensures:
 *   **Drafting Workflow**: Structured letter creation with context, departments, and tags.
