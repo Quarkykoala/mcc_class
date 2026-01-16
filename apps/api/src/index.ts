@@ -136,7 +136,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
     let query = supabase.from('letters').select(`
-        *,
+        id, context, status, created_at,
         departments (name),
         letter_tags (
             tags (name)
