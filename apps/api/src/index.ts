@@ -229,16 +229,43 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'APPROVED') return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
 
+    // Determine Version
+    const { data: versions, error: versionFetchError } = await supabase
+        .from('letter_versions')
+        .select('version_number')
+        .eq('letter_id', id)
+        .order('version_number', { ascending: false })
+        .limit(1);
+
+    if (versionFetchError) return res.status(500).json({ error: versionFetchError.message });
+
+    const nextVersion = (versions && versions.length > 0) ? versions[0].version_number + 1 : 1;
+
     // Generate Content Hash
     const tagIds = letter.letter_tags.map((lt: any) => lt.tags.id).sort();
     const contentHash = buildContentHash({
         letterId: letter.id,
-        versionNumber: 1, // Simplified
+        versionNumber: nextVersion,
         context: letter.context,
         departmentId: letter.department_id,
         tagIds,
         content: letter.content
     });
+
+    // Create Version Snapshot
+    const { data: newVersion, error: createVersionError } = await supabase
+        .from('letter_versions')
+        .insert({
+            letter_id: id,
+            version_number: nextVersion,
+            content: letter.content,
+            content_hash: contentHash,
+            created_by: issued_by
+        })
+        .select()
+        .single();
+
+    if (createVersionError) return res.status(500).json({ error: createVersionError.message });
 
     // Generate PDF
     const verifyUrl = `https://mcc-letter-system.web.app/verify/${contentHash}`;
@@ -256,10 +283,10 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
     // Record Issuance
     const { data: issuanceData, error: issuanceError } = await supabase.from('issuances').insert({
-        letter_id: id,
+        letter_version_id: newVersion.id,
         issued_by,
-        content_hash: contentHash,
-        metadata: { pdf_generated: true }
+        channel: channel || 'PRINT',
+        qr_payload: verifyUrl
     }).select().single();
 
     if (issuanceError) {
