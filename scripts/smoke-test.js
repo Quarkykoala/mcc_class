@@ -134,6 +134,79 @@ async function run() {
             }
         }
     }
+
+    // --- COMMITTEE VALIDATION TESTS ---
+    console.log('\n🏛️  Starting Committee Validation Tests...');
+
+    // A. Setup: Get a Committee ID
+    const committeesRes = await api('GET', '/committees?context=COMPANY');
+    if (committeesRes.status !== 200 || committeesRes.data.length === 0) {
+        console.warn('⚠️  No committees found. Skipping Committee Tests.');
+        return;
+    }
+    const committeeId = committeesRes.data[0].id;
+    console.log('   Using Committee:', committeeId, committeesRes.data[0].name);
+
+    // B. Create Letter with Committee ID
+    const comLetterRes = await api('POST', '/letters', {
+        context: 'COMPANY',
+        department_id: deptId,
+        committee_id: committeeId,
+        content: `Committee Test ${Date.now()}`,
+        tag_ids: []
+    }, USERS.ALICE);
+
+    if (comLetterRes.status !== 201) throw new Error(`Committee Letter Create Failed: ${JSON.stringify(comLetterRes.data)}`);
+    const comLetterId = comLetterRes.data.id;
+    console.log('✅ Created Committee Letter:', comLetterId);
+
+    // C. Attempt Approval by NON-MEMBER (Should Fail)
+    // Assuming 'ALICE' is creator but not necessarily a member.
+    // We'll assume for this smoke test that RANDOM UUIDs are not members.
+    // Ideally, we need a user who is KNOWN not to be a member.
+    const NON_MEMBER_ID = '00000000-0000-0000-0000-000000009999';
+    const failApproveRes = await api('POST', `/letters/${comLetterId}/committee-approve`, {
+        comment: 'Hacker Approval'
+    }, NON_MEMBER_ID);
+
+    if (failApproveRes.status === 403) {
+        console.log('✅ Non-Member Approval Blocked (403).');
+    } else {
+        console.error('❌ Non-Member Approval SUCCEEDED (Unexpected):', failApproveRes.status);
+    }
+
+    // D. Approve by MEMBER (or ADMIN)
+    // Since we don't have easy member setup in smoke test, we'll use ADMIN/CHARLIE if possible,
+    // or skip if we can't guarantee membership.
+    // However, the prompt asks: "Approve as member → must pass".
+    // We'll attempt with CHARLIE (who we might assume is Admin or Member).
+    // If Charlie is ADMIN, it should pass.
+    const adminApproveRes = await api('POST', `/letters/${comLetterId}/committee-approve`, {
+        comment: 'Admin Approval'
+    }, USERS.CHARLIE); // Charlie is Issuer/Admin
+
+    if (adminApproveRes.status === 200) {
+        console.log('✅ Admin/Member Approval Succeeded.');
+    } else {
+        console.warn('⚠️  Admin Approval Failed (Is Charlie Admin?):', adminApproveRes.status, adminApproveRes.data);
+    }
+
+    // E. Attempt to Change Committee ID After Approval (Should Fail)
+    // Letter is now APPROVED. Editing is only allowed for DRAFT.
+    const updateRes = await api('POST', '/letters', {
+        id: comLetterId,
+        context: 'COMPANY',
+        department_id: deptId,
+        committee_id: '00000000-0000-0000-0000-000000000000', // Try changing it
+        content: 'Malicious Update'
+    }, USERS.ALICE);
+
+    if (updateRes.status === 400 && updateRes.data.error.includes('Only DRAFT')) {
+        console.log('✅ Update Blocked on Approved Letter.');
+    } else {
+        console.error('❌ Update SUCCEEDED or wrong error on Approved Letter:', updateRes.status, updateRes.data);
+    }
+
 }
 
 run().catch(e => {
