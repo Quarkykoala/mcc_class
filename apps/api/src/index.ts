@@ -188,7 +188,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { id, context, department_id, tag_ids, content } = req.body;
+    const { id, context, department_id, tag_ids, content, committee_id } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     if (!content) {
@@ -221,6 +221,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             .update({
                 department_id: department_id || currentLetter.department_id,
                 content: content,
+                committee_id: committee_id, // Allow updating committee_id
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)
@@ -254,6 +255,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
                 context,
                 department_id,
                 content,
+                committee_id, // Allow setting committee_id
                 created_by: userId, // Use authenticated user
                 status: 'DRAFT',
                 source_ip
@@ -358,7 +360,8 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     // We create a NEW version snapshot at issuance to protect the exact state.
     // If a draft version exists with same content, fine, but issuance is a distinct event.
 
-    // 1. Get next version number
+    // 1. Get next version number (Optimistic check for hash generation)
+    // NOTE: The RPC will re-calculate/validate the version number atomically.
     const { data: versions } = await supabase
         .from('letter_versions')
         .select('version_number')
@@ -380,63 +383,59 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         content: letter.content
     });
 
-    // 3. Create Version Snapshot
-    const { data: newVersion, error: createVersionError } = await supabase
-        .from('letter_versions')
-        .insert({
-            letter_id: id,
-            version_number: nextVersion,
-            content: letter.content,
-            content_hash: contentHash,
-            created_by: userId
-        })
-        .select()
-        .single();
-
-    if (createVersionError) return res.status(500).json({ error: createVersionError.message });
-
-    // 4. Generate PDF
     const verifyUrl = `${clientUrl}/verify/${contentHash}`;
-    const pdfOutput = await generateIssuancePdf({
-        context: letter.context,
-        departmentName: letter.departments?.name,
-        content: letter.content,
-        contentHash,
-        verificationUrl: verifyUrl,
-        issuedAt: new Date()
+
+    // 3. Atomic Issuance RPC
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('issue_letter', {
+        p_letter_id: id,
+        p_issuer_id: userId,
+        p_content_hash: contentHash,
+        p_content: letter.content,
+        p_channel: channel || 'PRINT',
+        p_qr_payload: verifyUrl,
+        p_printer_id: printer_id,
+        p_source_ip: source_ip,
+        p_expected_version: nextVersion
     });
 
-    // 5. Update Status
-    await supabase.from('letters').update({ status: 'ISSUED' }).eq('id', id);
-
-    // 6. Record Issuance
-    const { data: issuanceData, error: issuanceError } = await supabase.from('issuances').insert({
-        letter_version_id: newVersion.id,
-        issued_by: userId,
-        channel: channel || 'PRINT',
-        qr_payload: verifyUrl,
-        content_hash: contentHash
-    }).select().single();
-
-    if (issuanceError) return res.status(500).json({ error: issuanceError.message });
-
-    // 7. Print Audit
-    if (channel === 'PRINT') {
-        supabase.from('print_audits').insert({
-            issuance_id: issuanceData.id,
-            printer_id: printer_id || 'DEFAULT',
-            status: 'SUCCESS',
-            printed_by: userId,
-            source_ip
-        }).then(); // Fire and forget promise
+    if (rpcError) {
+        if (rpcError.message.includes('Version Mismatch')) {
+             return res.status(409).json({ error: 'Issuance conflict: Version mismatch. Please try again.' });
+        }
+        return res.status(500).json({ error: 'Issuance failed: ' + rpcError.message });
     }
 
-    await supabase.from('audit_logs').insert({
-        action: 'ISSUE',
-        entity_type: 'LETTER',
-        entity_id: id,
-        metadata: { issued_by: userId, channel, content_hash: contentHash }
-    });
+    // 4. Generate PDF (after successful issuance)
+    let pdfOutput = '';
+    try {
+        pdfOutput = await generateIssuancePdf({
+            context: letter.context,
+            departmentName: letter.departments?.name,
+            content: letter.content,
+            contentHash,
+            verificationUrl: verifyUrl,
+            issuedAt: new Date()
+        });
+
+        // Update pdf_status to READY
+        await supabase
+            .from('issuances')
+            .update({ pdf_status: 'READY' })
+            .eq('id', rpcResult.issuance_id);
+
+    } catch (pdfError) {
+        console.error('PDF Generation Failed:', pdfError);
+         // Update pdf_status to FAILED
+        await supabase
+            .from('issuances')
+            .update({ pdf_status: 'FAILED' })
+            .eq('id', rpcResult.issuance_id);
+
+        // Return success for issuance but empty PDF (or error indication)
+        // Since issuance is atomic and committed, we technically "issued" it.
+        // We warn the user.
+        return res.json({ message: 'Letter issued but PDF generation failed.', verifyUrl, pdf: null });
+    }
 
     res.json({ message: 'Letter issued', pdf: pdfOutput, verifyUrl });
 });
@@ -575,16 +574,11 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    // RBAC: Check if user is Committee Member (TODO: Schema for committee members?)
-    // For now, allow APPROVER/ADMIN
-    if (!req.user?.roles.includes('APPROVER') && !req.user?.roles.includes('ADMIN')) {
-        return res.status(403).json({ error: 'Permission denied.' });
-    }
-
     const { id } = req.params;
-    const { committee_id, comment } = req.body;
+    const { comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
+    // 1. Fetch Letter first to get the authoritative committee_id
     const { data: letter, error: fetchError } = await supabase
         .from('letters')
         .select('*')
@@ -594,6 +588,29 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
+    const committee_id = letter.committee_id;
+
+    if (!committee_id) {
+        return res.status(400).json({ error: 'This letter is not assigned to a committee.' });
+    }
+
+    // RBAC: Check if user is Committee Member
+    // Admin can always approve. Otherwise, check committee membership.
+    const isAdmin = req.user?.roles.includes('ADMIN');
+    if (!isAdmin) {
+        const { data: member, error: memberError } = await supabase
+            .from('committee_members')
+            .select('user_id')
+            .eq('committee_id', committee_id)
+            .eq('user_id', userId)
+            .single();
+
+        if (memberError || !member) {
+             return res.status(403).json({ error: 'User is not a member of the assigned committee.' });
+        }
+    }
+
+    // Approve
     const { error: updateError } = await supabase
         .from('letters')
         .update({ status: 'APPROVED' })
@@ -612,7 +629,12 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
         action: 'COMMITTEE_APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { committee_id, approver_id: userId, source_ip }
+        metadata: {
+            committee_id,
+            approver_id: userId,
+            approval_role: isAdmin ? 'ADMIN' : 'MEMBER',
+            source_ip
+        }
     });
 
     res.json({ message: 'Letter approved by Committee successfully' });
