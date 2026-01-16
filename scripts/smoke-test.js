@@ -207,6 +207,27 @@ async function run() {
         console.error('❌ Update SUCCEEDED or wrong error on Approved Letter:', updateRes.status, updateRes.data);
     }
 
+    // F. Attempt Committee Approve on Normal Letter (Should Fail)
+    // Create a normal letter (no committee_id)
+    const normalRes = await api('POST', '/letters', {
+        context: 'COMPANY',
+        department_id: deptId,
+        content: `Normal Letter ${Date.now()}`,
+        tag_ids: []
+    }, USERS.ALICE);
+    if (normalRes.status === 201) {
+        const normalId = normalRes.data.id;
+        // Try committee approve
+        const normalApproveRes = await api('POST', `/letters/${normalId}/committee-approve`, {
+            comment: 'Should Fail'
+        }, USERS.CHARLIE); // Even Admin should fail if not committee letter
+
+        if (normalApproveRes.status === 400 && normalApproveRes.data.error.includes('not assigned to a committee')) {
+             console.log('✅ Committee Approval Blocked on Normal Letter.');
+        } else {
+             console.error('❌ Committee Approval SUCCEEDED/WRONG ERROR on Normal Letter:', normalApproveRes.status, normalApproveRes.data);
+        }
+    }
 }
 
 run().catch(e => {
