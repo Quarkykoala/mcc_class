@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { verifyApproverRole } from './auth-utils';
-import { buildContentHash, normalizeTagIds, generateIssuancePdf } from './letter-utils';
+import { buildContentHash, normalizeTagIds, generateIssuancePdf, buildVerificationResponse } from './letter-utils';
 import { handleLetterVersionUpdate } from './version-manager';
 
 dotenv.config();
@@ -286,7 +286,8 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         letter_version_id: newVersion.id,
         issued_by,
         channel: channel || 'PRINT',
-        qr_payload: verifyUrl
+        qr_payload: verifyUrl,
+        content_hash: contentHash
     }).select().single();
 
     if (issuanceError) {
@@ -295,11 +296,12 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
     // Print Audit
     if (channel === 'PRINT') {
-        await supabase.from('print_audit_logs').insert({
+        await supabase.from('print_audits').insert({
             issuance_id: issuanceData.id,
             printer_id: printer_id || 'DEFAULT',
             status: 'SUCCESS', // Mock success
-            printed_by: issued_by
+            printed_by: issued_by,
+            source_ip
         });
     }
 
@@ -315,37 +317,48 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
 app.get('/api/verify/:hash', async (req: Request, res: Response) => {
     const { hash } = req.params;
+    const accessKey = process.env.VERIFY_ACCESS_KEY;
+    const providedKey = req.header('x-verify-key');
 
-    const { data: issuance, error } = await supabase
-        .from('issuances')
-        .select('*, letters(*, departments(name), approvals(*, committee_approvals(*)))')
+    if (accessKey && accessKey !== providedKey) {
+        return res.status(401).json({ error: 'Verification requires authorized access.' });
+    }
+
+    const { data: versionRecord, error } = await supabase
+        .from('letter_versions')
+        .select(`
+            version_number,
+            letters (
+                context,
+                status,
+                departments (name),
+                approvals (approver_id, approved_at),
+                committee_approvals (approver_id, committee_id, created_at)
+            ),
+            issuances (id)
+        `)
         .eq('content_hash', hash)
         .single();
 
-    if (error || !issuance) {
+    if (error || !versionRecord) {
         return res.status(404).json({ valid: false, message: 'Invalid or unknown document hash.' });
     }
 
-    const { letters: letter } = issuance;
+    const approvals = versionRecord.letters?.approvals ?? [];
+    const committeeApprovals = (versionRecord.letters?.committee_approvals ?? []).map((approval: any) => ({
+        ...approval,
+        approved_at: approval.approved_at || approval.created_at
+    }));
 
-    // Check if revoked (omitted for brevity, assume valid if exists in issuances and letter not explicitly voided)
-
-    res.json({
-        valid: true,
-        document_details: {
-            id: letter.id,
-            context: letter.context,
-            department: letter.departments?.name,
-            status: letter.status,
-            issued_at: issuance.issued_at,
-            issued_by: issuance.issued_by,
-            approved_by: letter.approvals?.[0]?.approver_id || letter.committee_approvals?.[0]?.approver_id,
-            approved_at: letter.approvals?.[0]?.created_at || letter.committee_approvals?.[0]?.created_at,
-            approved_via: letter.committee_approvals?.length > 0 ? 'COMMITTEE' : 'STANDARD',
-            committee_id: letter.committee_approvals?.[0]?.committee_id,
-            issuance_exists: true
-        }
+    const response = buildVerificationResponse({
+        version_number: versionRecord.version_number,
+        letters: versionRecord.letters,
+        approvals,
+        committee_approvals: committeeApprovals,
+        issuances: versionRecord.issuances
     });
+
+    res.json(response);
 });
 
 app.post('/api/acknowledgements', async (req: Request, res: Response) => {
@@ -370,6 +383,60 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
     });
 
     res.json({ message: 'Acknowledgement recorded' });
+});
+
+// --- Email Classifier Linkage ---
+
+app.get('/api/email-links', async (req: Request, res: Response) => {
+    const { letter_id, job_reference } = req.query;
+    let query = supabase.from('email_links').select('*').order('created_at', { ascending: false });
+
+    if (letter_id) {
+        query = query.eq('letter_id', String(letter_id));
+    }
+    if (job_reference) {
+        query = query.eq('job_reference', String(job_reference));
+    }
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
+app.post('/api/email-links', async (req: Request, res: Response) => {
+    const { letter_id, job_reference, sender, subject, body_excerpt, received_at, classified_by } = req.body;
+    const source_ip = req.ip || '0.0.0.0';
+
+    if (!letter_id && !job_reference) {
+        return res.status(400).json({ error: 'letter_id or job_reference is required.' });
+    }
+
+    const { data, error } = await supabase
+        .from('email_links')
+        .insert({
+            letter_id,
+            job_reference,
+            sender,
+            subject,
+            body_excerpt,
+            received_at,
+            classified_by,
+            source_ip
+        })
+        .select()
+        .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    await supabase.from('audit_logs').insert({
+        action: 'EMAIL_LINK',
+        entity_type: 'LETTER',
+        entity_id: letter_id || data.letter_id,
+        metadata: { job_reference, sender, subject },
+        source_ip
+    });
+
+    res.status(201).json(data);
 });
 
 app.get('/api/audit-logs', async (req: Request, res: Response) => {

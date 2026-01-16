@@ -25,7 +25,11 @@ function App() {
   const [letters, setLetters] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [verificationData, setVerificationData] = useState<any>(null);
+  const [verifyAccessKey, setVerifyAccessKey] = useState('');
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [requiresAccessKey, setRequiresAccessKey] = useState(false);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [emailLinks, setEmailLinks] = useState<any[]>([]);
   const [view, setView] = useState<'DASHBOARD' | 'AUDIT'>('DASHBOARD');
   const [committees, setCommittees] = useState<any[]>([]);
 
@@ -34,9 +38,21 @@ function App() {
   useEffect(() => {
     const hash = window.location.pathname.split('/verify/')[1];
     if (hash) {
-      fetch(`${API_BASE}/verify/${hash}`)
-        .then(res => res.json())
-        .then(data => setVerificationData(data));
+      const fetchVerification = async (accessKey?: string) => {
+        const res = await fetch(`${API_BASE}/verify/${hash}`, {
+          headers: accessKey ? { 'x-verify-key': accessKey } : undefined
+        });
+        if (res.status === 401) {
+          setRequiresAccessKey(true);
+          setVerifyError('Authorized access required to validate this letter.');
+          return;
+        }
+        const data = await res.json();
+        setVerificationData(data);
+        setVerifyError(null);
+      };
+
+      fetchVerification();
     }
   }, []);
 
@@ -65,6 +81,13 @@ function App() {
       .catch(() => setAuditLogs([]));
   };
 
+  const fetchEmailLinks = () => {
+    fetch(`${API_BASE}/email-links`)
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setEmailLinks(coerceArray(data)))
+      .catch(() => setEmailLinks([]));
+  };
+
   const fetchCommittees = () => {
     fetch(`${API_BASE}/committees`)
       .then(res => (res.ok ? res.json() : []))
@@ -75,6 +98,7 @@ function App() {
   useEffect(() => {
     fetchLetters();
     fetchAuditLogs();
+    fetchEmailLinks();
     fetchCommittees();
   }, []);
 
@@ -200,6 +224,51 @@ function App() {
     }
   };
 
+  const handleEmailLink = async (id: string) => {
+    const job_reference = prompt('Enter Job Reference (optional):') || undefined;
+    const sender = prompt('Enter Email Sender:') || undefined;
+    const subject = prompt('Enter Email Subject:') || undefined;
+    const body_excerpt = prompt('Enter Email Excerpt:') || undefined;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/email-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          letter_id: id,
+          job_reference,
+          sender,
+          subject,
+          body_excerpt,
+          classified_by: '00000000-0000-0000-0000-000000000000',
+          received_at: new Date().toISOString()
+        })
+      });
+      if (res.ok) {
+        fetchEmailLinks();
+        fetchAuditLogs();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyAccess = async () => {
+    const hash = window.location.pathname.split('/verify/')[1];
+    if (!hash || !verifyAccessKey) return;
+    const res = await fetch(`${API_BASE}/verify/${hash}`, {
+      headers: { 'x-verify-key': verifyAccessKey }
+    });
+    if (res.status === 401) {
+      setVerifyError('Invalid access key. Please contact your administrator.');
+      return;
+    }
+    const data = await res.json();
+    setVerificationData(data);
+    setVerifyError(null);
+  };
+
   if (verificationData) {
     return (
       <div className="container verification-view">
@@ -218,6 +287,31 @@ function App() {
           ) : (
             <div className="status-header">❌ INVALID OR TAMPERED</div>
           )}
+          <button className="back-btn" onClick={() => window.location.href = '/'}>Back to Dashboard</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (requiresAccessKey) {
+    return (
+      <div className="container verification-view">
+        <header><h1>Document Verification</h1></header>
+        <div className="verification-card gated">
+          <div className="status-header">🔒 AUTHORIZED ACCESS REQUIRED</div>
+          <p className="verification-message">
+            Enter the verification access key to view document authenticity.
+          </p>
+          <div className="verification-form">
+            <input
+              type="password"
+              placeholder="Access key"
+              value={verifyAccessKey}
+              onChange={e => setVerifyAccessKey(e.target.value)}
+            />
+            <button className="verify-btn" onClick={handleVerifyAccess}>Verify Document</button>
+          </div>
+          {verifyError && <p className="error-text">{verifyError}</p>}
           <button className="back-btn" onClick={() => window.location.href = '/'}>Back to Dashboard</button>
         </div>
       </div>
@@ -264,6 +358,34 @@ function App() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="email-links">
+            <h3>Email Classifier Linkage</h3>
+            <p>Recent inbox-to-letter matches captured for follow-up.</p>
+            <div className="email-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Letter</th>
+                    <th>Job Ref</th>
+                    <th>Sender</th>
+                    <th>Subject</th>
+                    <th>Received</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {emailLinks.map(link => (
+                    <tr key={link.id}>
+                      <td className="monospace">{link.letter_id?.substring(0, 8)}...</td>
+                      <td>{link.job_reference || '-'}</td>
+                      <td>{link.sender || '-'}</td>
+                      <td>{link.subject || '-'}</td>
+                      <td>{link.received_at ? new Date(link.received_at).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       ) : (
@@ -354,6 +476,9 @@ function App() {
                       Link Acknowledgement
                     </button>
                   )}
+                  <button className="email-btn" onClick={() => handleEmailLink(l.id)} disabled={loading}>
+                    Link Email
+                  </button>
                 </div>
               ))}
             </div>
@@ -365,4 +490,3 @@ function App() {
 }
 
 export default App;
-
