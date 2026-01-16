@@ -135,13 +135,19 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     let query = supabase.from('letters').select(`
         *,
         departments (name),
         letter_tags (
             tags (name)
         )
-    `).order('created_at', { ascending: false });
+    `).order('created_at', { ascending: false })
+      .range(from, to);
 
     if (context) {
         query = query.eq('context', String(context));
@@ -400,6 +406,10 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-app.listen(port, () => {
-    console.log(`API server running on http://localhost:${port}`);
-});
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`API server running on http://localhost:${port}`);
+    });
+}
+
+export { app };
