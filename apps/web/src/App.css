@@ -422,6 +422,17 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.email-btn {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+.email-btn:hover {
+  background: rgba(59, 130, 246, 0.22);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+}
+
 /* --- Locked State --- */
 
 .letter-card.locked {
@@ -495,6 +506,50 @@ button:disabled {
   color: #f87171;
 }
 
+.verification-card.gated .status-header {
+  color: #a5b4fc;
+}
+
+.verification-message {
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.verification-form {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.verification-form input {
+  flex: 1;
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-primary);
+}
+
+.verify-btn {
+  border: none;
+  background: var(--accent);
+  color: #0b0b12;
+  font-weight: 700;
+  padding: 0.8rem 1.2rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.verify-btn:hover {
+  box-shadow: 0 0 18px var(--accent-glow);
+}
+
+.error-text {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
 .details {
   background: rgba(0, 0, 0, 0.3);
   padding: 2rem;
@@ -543,6 +598,28 @@ button:disabled {
 }
 
 .audit-table {
+  overflow-x: auto;
+}
+
+.email-links {
+  margin-top: 2.5rem;
+}
+
+.email-links h3 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.08em;
+  margin-bottom: 0.5rem;
+}
+
+.email-links p {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.email-table {
   overflow-x: auto;
 }
 
