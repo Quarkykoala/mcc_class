@@ -12,6 +12,9 @@ CREATE POLICY "Internal Read Access" ON committee_members FOR SELECT TO authenti
 -- Add pdf_status to issuances
 ALTER TABLE issuances ADD COLUMN pdf_status TEXT DEFAULT 'PENDING';
 
+-- Add committee_id to letters (Server-side source of truth)
+ALTER TABLE letters ADD COLUMN committee_id UUID REFERENCES committees(id) ON DELETE SET NULL;
+
 -- RPC for atomic issuance
 CREATE OR REPLACE FUNCTION issue_letter(
     p_letter_id UUID,

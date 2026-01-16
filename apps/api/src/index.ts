@@ -188,7 +188,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { id, context, department_id, tag_ids, content } = req.body;
+    const { id, context, department_id, tag_ids, content, committee_id } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
     if (!content) {
@@ -221,6 +221,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
             .update({
                 department_id: department_id || currentLetter.department_id,
                 content: content,
+                committee_id: committee_id, // Allow updating committee_id
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)
@@ -254,6 +255,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
                 context,
                 department_id,
                 content,
+                committee_id, // Allow setting committee_id
                 created_by: userId, // Use authenticated user
                 status: 'DRAFT',
                 source_ip
@@ -573,39 +575,10 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     const { id } = req.params;
-    const { committee_id, comment } = req.body;
+    const { comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    // RBAC: Check if user is Committee Member
-    // Admin can always approve. Otherwise, check committee membership.
-    if (!req.user?.roles.includes('ADMIN')) {
-        // Validation: Check if letter context matches committee context
-        // (This is an indirect check since we can't link letter->committee directly without schema change)
-        const { data: committee } = await supabase
-            .from('committees')
-            .select('context')
-            .eq('id', committee_id)
-            .single();
-
-        // Note: We don't block if committee fetch fails (could be RLS or bad ID),
-        // but the membership check below will fail anyway if ID is invalid.
-        // If committee exists, we verify context matches letter.
-        if (committee && committee.context !== letter.context) {
-             return res.status(400).json({ error: 'Committee context does not match letter context.' });
-        }
-
-        const { data: member, error: memberError } = await supabase
-            .from('committee_members')
-            .select('user_id')
-            .eq('committee_id', committee_id)
-            .eq('user_id', userId)
-            .single();
-
-        if (memberError || !member) {
-             return res.status(403).json({ error: 'User is not a member of the specified committee.' });
-        }
-    }
-
+    // 1. Fetch Letter first to get the authoritative committee_id
     const { data: letter, error: fetchError } = await supabase
         .from('letters')
         .select('*')
@@ -615,6 +588,29 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
+    const committee_id = letter.committee_id;
+
+    if (!committee_id) {
+        return res.status(400).json({ error: 'This letter is not assigned to a committee.' });
+    }
+
+    // RBAC: Check if user is Committee Member
+    // Admin can always approve. Otherwise, check committee membership.
+    const isAdmin = req.user?.roles.includes('ADMIN');
+    if (!isAdmin) {
+        const { data: member, error: memberError } = await supabase
+            .from('committee_members')
+            .select('user_id')
+            .eq('committee_id', committee_id)
+            .eq('user_id', userId)
+            .single();
+
+        if (memberError || !member) {
+             return res.status(403).json({ error: 'User is not a member of the assigned committee.' });
+        }
+    }
+
+    // Approve
     const { error: updateError } = await supabase
         .from('letters')
         .update({ status: 'APPROVED' })
@@ -633,7 +629,12 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
         action: 'COMMITTEE_APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { committee_id, approver_id: userId, source_ip }
+        metadata: {
+            committee_id,
+            approver_id: userId,
+            approval_role: isAdmin ? 'ADMIN' : 'MEMBER',
+            source_ip
+        }
     });
 
     res.json({ message: 'Letter approved by Committee successfully' });
