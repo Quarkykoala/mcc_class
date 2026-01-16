@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { verifyApproverRole } from './auth-utils';
 import { buildContentHash, normalizeTagIds, generateIssuancePdf } from './letter-utils';
 import { handleLetterVersionUpdate } from './version-manager';
 
@@ -172,6 +173,10 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     const { approver_id, comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
+    // Future Security Note: In a production environment, approver_id should be derived
+    // from the authenticated session (e.g., req.user.id) rather than the request body
+    // to prevent IDOR attacks. For now, we validate the role of the provided ID.
+
     const { data: letter, error: fetchError } = await supabase
         .from('letters')
         .select('*')
@@ -181,7 +186,10 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
-    // In a real app, verify approver role here
+    const isApprover = await verifyApproverRole(supabase, approver_id);
+    if (!isApprover) {
+        return res.status(403).json({ error: 'User does not have permission to approve letters.' });
+    }
 
     const { error: updateError } = await supabase
         .from('letters')
