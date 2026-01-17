@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from './lib/supabase';
 import './App.css';
 
 const API_BASE = 'http://localhost:3000/api';
@@ -16,6 +17,12 @@ interface Tag {
 }
 
 function App() {
+  const [session, setSession] = useState<any>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [context, setContext] = useState<'COMPANY' | 'BCBA'>('COMPANY');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -36,10 +43,25 @@ function App() {
   const coerceArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
   useEffect(() => {
-    const hash = window.location.pathname.split('/verify/')[1];
-    if (hash) {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Verification doesn't require auth (unless protected by key)
+    const token = window.location.pathname.split('/verify/')[1];
+    if (token) {
       const fetchVerification = async (accessKey?: string) => {
-        const res = await fetch(`${API_BASE}/verify/${hash}`, {
+        const res = await fetch(`${API_BASE}/verify/${token}`, {
           headers: accessKey ? { 'x-verify-key': accessKey } : undefined
         });
         if (res.status === 401) {
@@ -57,6 +79,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!session) return;
+
     fetch(`${API_BASE}/departments?context=${context}`)
       .then(res => (res.ok ? res.json() : []))
       .then(data => setDepartments(coerceArray(data)))
@@ -65,56 +89,95 @@ function App() {
       .then(res => (res.ok ? res.json() : []))
       .then(data => setTags(coerceArray(data)))
       .catch(() => setTags([]));
-  }, [context]);
+  }, [context, session]);
+
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    if (!session) return new Response(null, { status: 401, statusText: "Unauthorized" });
+    const headers = {
+        ...options.headers,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+    };
+    return fetch(url, { ...options, headers });
+  };
 
   const fetchLetters = () => {
-    fetch(`${API_BASE}/letters`)
+    if (!session) return;
+    authenticatedFetch(`${API_BASE}/letters`)
       .then(res => (res.ok ? res.json() : []))
       .then(data => setLetters(coerceArray(data)))
       .catch(() => setLetters([]));
   };
 
   const fetchAuditLogs = () => {
-    fetch(`${API_BASE}/audit-logs`)
+    if (!session) return;
+    authenticatedFetch(`${API_BASE}/audit-logs`)
       .then(res => (res.ok ? res.json() : []))
       .then(data => setAuditLogs(coerceArray(data)))
       .catch(() => setAuditLogs([]));
   };
 
   const fetchEmailLinks = () => {
-    fetch(`${API_BASE}/email-links`)
+    if (!session) return;
+    authenticatedFetch(`${API_BASE}/email-links`)
       .then(res => (res.ok ? res.json() : []))
       .then(data => setEmailLinks(coerceArray(data)))
       .catch(() => setEmailLinks([]));
   };
 
   const fetchCommittees = () => {
-    fetch(`${API_BASE}/committees`)
+    if (!session) return;
+    authenticatedFetch(`${API_BASE}/committees`)
       .then(res => (res.ok ? res.json() : []))
       .then(data => setCommittees(coerceArray(data)))
       .catch(() => setCommittees([]));
   };
 
   useEffect(() => {
-    fetchLetters();
-    fetchAuditLogs();
-    fetchEmailLinks();
-    fetchCommittees();
-  }, []);
+    if (session) {
+      fetchLetters();
+      fetchAuditLogs();
+      fetchEmailLinks();
+      fetchCommittees();
+    }
+  }, [session]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    setAuthLoading(false);
+    if (error) setAuthError(error.message);
+  };
+
+  const handleSignUp = async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      const { error } = await supabase.auth.signUp({
+          email,
+          password
+      });
+      setAuthLoading(false);
+      if (error) setAuthError(error.message);
+      else alert('Check your email for the login link!');
+  };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/letters`, {
+      const res = await authenticatedFetch(`${API_BASE}/letters`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           context,
           department_id: selectedDept,
           tag_ids: selectedTags,
-          content,
-          created_by: '00000000-0000-0000-0000-000000000000'
+          content
         })
       });
       if (res.ok) {
@@ -123,6 +186,9 @@ function App() {
         setSelectedDept('');
         fetchLetters();
         fetchAuditLogs();
+      } else {
+          const err = await res.json();
+          alert(`Error: ${err.error}`);
       }
     } finally {
       setLoading(false);
@@ -132,17 +198,18 @@ function App() {
   const handleApprove = async (id: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/letters/${id}/approve`, {
+      const res = await authenticatedFetch(`${API_BASE}/letters/${id}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          approver_id: '00000000-0000-0000-0000-000000000000',
           comment: 'Approved via dashboard'
         })
       });
       if (res.ok) {
         fetchLetters();
         fetchAuditLogs();
+      } else {
+        const err = await res.json();
+        alert(`Error: ${err.error}`);
       }
     } finally {
       setLoading(false);
@@ -151,21 +218,30 @@ function App() {
 
   const handleCommitteeApprove = async (id: string) => {
     if (committees.length === 0) return;
-    const committeeId = committees[0].id;
+    // For simplicity, defaulting to first committee.
+    // In real app, UI should allow selecting committee if multiple apply,
+    // but the letter is assigned to one. The API figures out if valid.
+    // The API needs committee_id in body though?
+    // Checking index.ts: it uses letter.committee_id from DB, but still expects it in body?
+    // Wait, the API code: `const { committee_id } = req.body;` is NOT used in `committee-approve` endpoint!
+    // It fetches letter, gets `committee_id = letter.committee_id`.
+    // It ignores body committee_id.
+    // So I can remove it from body.
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/letters/${id}/committee-approve`, {
+      const res = await authenticatedFetch(`${API_BASE}/letters/${id}/committee-approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          committee_id: committeeId,
-          approver_id: '00000000-0000-0000-0000-000000000000'
+          comment: 'Approved via committee dashboard'
         })
       });
       if (res.ok) {
         fetchLetters();
         fetchAuditLogs();
+      } else {
+        const err = await res.json();
+        alert(`Error: ${err.error}`);
       }
     } finally {
       setLoading(false);
@@ -175,23 +251,25 @@ function App() {
   const handleIssue = async (id: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/letters/${id}/issue`, {
+      const res = await authenticatedFetch(`${API_BASE}/letters/${id}/issue`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          issued_by: '00000000-0000-0000-0000-000000000000',
           channel: 'PRINT',
           printer_id: 'HP-LASERJET-400'
         })
       });
       const data = await res.json();
-      if (data.pdf) {
-        const win = window.open();
-        if (win) {
-          win.document.write(`<iframe src="${data.pdf}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
-        }
-        fetchLetters();
-        fetchAuditLogs();
+      if (res.ok) {
+          if (data.pdf) {
+            const win = window.open();
+            if (win) {
+              win.document.write(`<iframe src="${data.pdf}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+            }
+          }
+          fetchLetters();
+          fetchAuditLogs();
+      } else {
+          alert(`Error: ${data.error}`);
       }
     } finally {
       setLoading(false);
@@ -205,14 +283,12 @@ function App() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/acknowledgements`, {
+      const res = await authenticatedFetch(`${API_BASE}/acknowledgements`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           letter_id: id,
           job_reference,
-          file_url,
-          captured_by: '00000000-0000-0000-0000-000000000000'
+          file_url
         })
       });
       if (res.ok) {
@@ -232,16 +308,14 @@ function App() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/email-links`, {
+      const res = await authenticatedFetch(`${API_BASE}/email-links`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           letter_id: id,
           job_reference,
           sender,
           subject,
           body_excerpt,
-          classified_by: '00000000-0000-0000-0000-000000000000',
           received_at: new Date().toISOString()
         })
       });
@@ -255,9 +329,9 @@ function App() {
   };
 
   const handleVerifyAccess = async () => {
-    const hash = window.location.pathname.split('/verify/')[1];
-    if (!hash || !verifyAccessKey) return;
-    const res = await fetch(`${API_BASE}/verify/${hash}`, {
+    const token = window.location.pathname.split('/verify/')[1];
+    if (!token || !verifyAccessKey) return;
+    const res = await fetch(`${API_BASE}/verify/${token}`, {
       headers: { 'x-verify-key': verifyAccessKey }
     });
     if (res.status === 401) {
@@ -269,6 +343,7 @@ function App() {
     setVerifyError(null);
   };
 
+  // Verification View (Public or Protected by Key)
   if (verificationData) {
     return (
       <div className="container verification-view">
@@ -318,10 +393,55 @@ function App() {
     );
   }
 
+  // Auth View
+  if (!session) {
+    return (
+      <div className="container auth-container">
+        <h1>Letter Issuance System</h1>
+        <div className="auth-box">
+          <h2>Sign In</h2>
+          {authError && <p className="error-text">{authError}</p>}
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" disabled={authLoading}>
+              {authLoading ? 'Loading...' : 'Sign In'}
+            </button>
+          </form>
+          <div style={{marginTop: '1rem'}}>
+               <button onClick={handleSignUp} disabled={authLoading} className="secondary-btn">
+                   Sign Up
+               </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
       <header>
         <h1>Letter Issuance System</h1>
+        <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
+            <span>{session.user.email}</span>
+            <button onClick={() => supabase.auth.signOut()} className="small-btn">Sign Out</button>
+        </div>
         <nav className="main-nav">
           <button onClick={() => setView('DASHBOARD')} className={view === 'DASHBOARD' ? 'active' : ''}>Dashboard</button>
           <button onClick={() => setView('AUDIT')} className={view === 'AUDIT' ? 'active' : ''}>Audit Log</button>

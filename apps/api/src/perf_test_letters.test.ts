@@ -5,13 +5,14 @@ import request from 'supertest';
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'example-key';
 
-// Define mocks first, inside the vi.mock call or accessible to it.
-const { mockFrom, mockSelect, mockOrder, mockRange, mockEq } = vi.hoisted(() => {
+// Mock Supabase Auth
+const { mockFrom, mockSelect, mockOrder, mockRange, mockEq, mockAuthGetUser } = vi.hoisted(() => {
   const mockSelect = vi.fn();
   const mockOrder = vi.fn();
   const mockRange = vi.fn();
   const mockEq = vi.fn();
   const mockFrom = vi.fn();
+  const mockAuthGetUser = vi.fn();
 
   const mockQueryBuilder: any = {
     select: mockSelect,
@@ -27,12 +28,15 @@ const { mockFrom, mockSelect, mockOrder, mockRange, mockEq } = vi.hoisted(() => 
   mockEq.mockReturnValue(mockQueryBuilder);
   mockFrom.mockReturnValue(mockQueryBuilder);
 
-  return { mockFrom, mockSelect, mockOrder, mockRange, mockEq };
+  return { mockFrom, mockSelect, mockOrder, mockRange, mockEq, mockAuthGetUser };
 });
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: mockFrom,
+    auth: {
+        getUser: mockAuthGetUser
+    }
   }),
 }));
 
@@ -42,10 +46,22 @@ import { app } from './index';
 describe('GET /api/letters Performance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default auth success
+    mockAuthGetUser.mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null
+    });
   });
 
-  it('fetches letters with default pagination (limit 50)', async () => {
+  it('returns 401 if unauthorized', async () => {
     const res = await request(app).get('/api/letters');
+    expect(res.status).toBe(401);
+  });
+
+  it('fetches letters with default pagination (limit 50) when authorized', async () => {
+    const res = await request(app)
+        .get('/api/letters')
+        .set('Authorization', 'Bearer test-token'); // Add Auth Header
 
     expect(res.status).toBe(200);
     expect(mockFrom).toHaveBeenCalledWith('letters');
@@ -55,8 +71,10 @@ describe('GET /api/letters Performance', () => {
     expect(mockRange).toHaveBeenCalledWith(0, 49);
   });
 
-  it('fetches letters with custom pagination', async () => {
-    const res = await request(app).get('/api/letters?page=2&limit=20');
+  it('fetches letters with custom pagination when authorized', async () => {
+    const res = await request(app)
+        .get('/api/letters?page=2&limit=20')
+        .set('Authorization', 'Bearer test-token');
 
     expect(res.status).toBe(200);
 

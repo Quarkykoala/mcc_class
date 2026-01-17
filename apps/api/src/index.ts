@@ -6,6 +6,7 @@ import { verifyApproverRole } from './auth-utils';
 import { buildContentHash, normalizeTagIds, generateIssuancePdf, buildVerificationResponse } from './letter-utils';
 import { handleLetterVersionUpdate } from './version-manager';
 import { authMiddleware } from './auth-middleware';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -72,47 +73,8 @@ app.get('/api/tags', async (req: Request, res: Response) => {
     res.json(data);
 });
 
-// --- Letters (Read Public/Mixed, Write Protected) ---
-
-app.get('/api/letters', async (req: Request, res: Response) => {
-    const { context } = req.query;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    // Base Query
-    let query = supabase.from('letters').select(`
-        id, context, status, created_at,
-        departments (name),
-        letter_tags (
-            tags (name)
-        )
-    `, { count: 'exact' });
-
-    if (context) {
-        query = query.eq('context', String(context));
-    }
-
-    // Pagination
-    query = query.order('created_at', { ascending: false }).range(from, to);
-
-    const { data, error, count } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.json({
-        data,
-        meta: {
-            total: count,
-            page,
-            limit,
-            hasMore: count ? to < count - 1 : false
-        }
-    });
-});
-
-app.get('/api/verify/:hash', async (req: Request, res: Response) => {
-    const { hash } = req.params;
+app.get('/api/verify/:token', async (req: Request, res: Response) => {
+    const { token } = req.params;
     const accessKey = process.env.VERIFY_ACCESS_KEY;
     const providedKey = req.header('x-verify-key');
 
@@ -120,7 +82,10 @@ app.get('/api/verify/:hash', async (req: Request, res: Response) => {
         return res.status(401).json({ error: 'Verification requires authorized access.' });
     }
 
-    const { data: versionRecord, error } = await supabase
+    // Determine if we are looking up by UUID (verification_token) or Hash (legacy)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+
+    let query = supabase
         .from('letter_versions')
         .select(`
             version_number,
@@ -132,12 +97,18 @@ app.get('/api/verify/:hash', async (req: Request, res: Response) => {
                 committee_approvals (approver_id, committee_id, created_at)
             ),
             issuances (id)
-        `)
-        .eq('content_hash', hash)
-        .single();
+        `);
+
+    if (isUuid) {
+        query = query.eq('verification_token', token);
+    } else {
+        query = query.eq('content_hash', token);
+    }
+
+    const { data: versionRecord, error } = await query.single();
 
     if (error || !versionRecord) {
-        return res.status(404).json({ valid: false, message: 'Invalid or unknown document hash.' });
+        return res.status(404).json({ valid: false, message: 'Invalid or unknown verification token.' });
     }
 
     const letter = Array.isArray(versionRecord.letters) ? versionRecord.letters[0] : versionRecord.letters;
@@ -180,11 +151,52 @@ app.get('/api/verify/:hash', async (req: Request, res: Response) => {
 });
 
 // --- AUTHENTICATED ROUTES ---
-// Apply Auth Middleware to everything below
+// Apply Auth Middleware to everything below (EXCEPT public verification)
+// Moved here to ensure GET routes are also protected if they return sensitive data.
+// If GET /letters is public, move it ABOVE this line.
+// Assuming GET /letters contains sensitive drafts/approvals, it should be protected.
 app.use(authMiddleware(supabase));
 
+// --- Letters (Read Public/Mixed, Write Protected) ---
+
+app.get('/api/letters', async (req: Request, res: Response) => {
+    const { context } = req.query;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // Base Query
+    let query = supabase.from('letters').select(`
+        id, context, status, created_at,
+        departments (name),
+        letter_tags (
+            tags (name)
+        )
+    `, { count: 'exact' });
+
+    if (context) {
+        query = query.eq('context', String(context));
+    }
+
+    // Pagination
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+        data,
+        meta: {
+            total: count,
+            page,
+            limit,
+            hasMore: count ? to < count - 1 : false
+        }
+    });
+});
+
 app.post('/api/letters', async (req: Request, res: Response) => {
-    // RBAC: Any auth user can create draft? Lets assume yes for now, or check role.
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -310,6 +322,11 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
+    // BLOCK COMMITTEE APPROVAL
+    if (letter.committee_id) {
+        return res.status(403).json({ error: 'Letters assigned to a committee must be approved via the Committee Approval endpoint.' });
+    }
+
     const { error: updateError } = await supabase
         .from('letters')
         .update({ status: 'APPROVED' })
@@ -354,7 +371,11 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
-    if (letter.status !== 'APPROVED') return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
+
+    // Check if letter is APPROVED or ISSUED (idempotency handled in RPC but check here too for clarity)
+    if (letter.status !== 'APPROVED' && letter.status !== 'ISSUED') {
+        return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
+    }
 
     // Determine Version logic
     // We create a NEW version snapshot at issuance to protect the exact state.
@@ -383,9 +404,11 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         content: letter.content
     });
 
-    const verifyUrl = `${clientUrl}/verify/${contentHash}`;
+    // 3. Generate Verification Token
+    const verificationToken = uuidv4();
+    const verifyUrl = `${clientUrl}/verify/${verificationToken}`;
 
-    // 3. Atomic Issuance RPC
+    // 4. Atomic Issuance RPC
     const { data: rpcResult, error: rpcError } = await supabase.rpc('issue_letter', {
         p_letter_id: id,
         p_issuer_id: userId,
@@ -395,7 +418,8 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         p_qr_payload: verifyUrl,
         p_printer_id: printer_id,
         p_source_ip: source_ip,
-        p_expected_version: nextVersion
+        p_expected_version: nextVersion,
+        p_verification_token: verificationToken
     });
 
     if (rpcError) {
@@ -405,7 +429,12 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'Issuance failed: ' + rpcError.message });
     }
 
-    // 4. Generate PDF (after successful issuance)
+    // 5. Generate PDF (after successful issuance)
+    // If rpcResult contains a different verification token (because of idempotency), use it.
+    const finalVerifyUrl = rpcResult.verification_token
+        ? `${clientUrl}/verify/${rpcResult.verification_token}`
+        : verifyUrl;
+
     let pdfOutput = '';
     try {
         pdfOutput = await generateIssuancePdf({
@@ -413,7 +442,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
             departmentName: letter.departments?.name,
             content: letter.content,
             contentHash,
-            verificationUrl: verifyUrl,
+            verificationUrl: finalVerifyUrl,
             issuedAt: new Date()
         });
 
@@ -434,10 +463,10 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         // Return success for issuance but empty PDF (or error indication)
         // Since issuance is atomic and committed, we technically "issued" it.
         // We warn the user.
-        return res.json({ message: 'Letter issued but PDF generation failed.', verifyUrl, pdf: null });
+        return res.json({ message: 'Letter issued but PDF generation failed.', verifyUrl: finalVerifyUrl, pdf: null });
     }
 
-    res.json({ message: 'Letter issued', pdf: pdfOutput, verifyUrl });
+    res.json({ message: 'Letter issued', pdf: pdfOutput, verifyUrl: finalVerifyUrl });
 });
 
 app.post('/api/letters/:id/revoke', async (req: Request, res: Response) => {
