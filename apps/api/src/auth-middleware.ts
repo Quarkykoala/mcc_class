@@ -9,7 +9,7 @@ declare global {
                 id: string;
                 roles: string[];
             };
-            supabase: SupabaseClient; // Also attaching supabase instance for convenience if needed
+            supabase: SupabaseClient;
         }
     }
 }
@@ -19,28 +19,33 @@ export const authMiddleware = (supabase: SupabaseClient) => async (
     res: Response,
     next: NextFunction
 ) => {
-    const userId = req.header('x-user-id');
+    const authHeader = req.headers.authorization;
 
-    if (!userId) {
-        // For local dev, we could default to Alice, but better to enforce header for testing "log in"
-        // However, the instructions imply we should be able to simulate users.
-        // If no header, we return 401 to enforce the new security model.
-        return res.status(401).json({ error: 'Missing x-user-id header' });
+    if (!authHeader) {
+        return res.status(401).json({ error: 'Missing Authorization header' });
     }
 
-    // Fetch roles
-    const { data: roles, error } = await supabase
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+        console.error('Auth verification failed:', authError);
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    // Fetch roles using the verified user ID
+    const { data: roles, error: rolesError } = await supabase
         .from('user_roles')
         .select('role')
-        .eq('user_id', userId);
+        .eq('user_id', user.id);
 
-    if (error) {
-        console.error('Auth error:', error);
-        return res.status(500).json({ error: 'Auth verification failed' });
+    if (rolesError) {
+        console.error('Role fetch error:', rolesError);
+        return res.status(500).json({ error: 'Failed to fetch user permissions' });
     }
 
     req.user = {
-        id: userId,
+        id: user.id,
         roles: roles ? roles.map((r: any) => r.role) : []
     };
     req.supabase = supabase;
