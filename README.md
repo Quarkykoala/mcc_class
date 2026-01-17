@@ -7,9 +7,28 @@ The **MCC Letter Issuance System** is a secure platform designed to manage the d
 This system ensures:
 *   **Drafting Workflow**: Structured letter creation with context, departments, and tags.
 *   **Approval Hierarchy**: Role-based approvals (Creator, Approver, Issuer) and Committee-based approvals.
-*   **Atomic Issuance**: Letters are issued with immutable version snapshots and cryptographic content hashes.
+*   **Atomic Issuance**: Letters are issued with immutable version snapshots and cryptographic content hashes, utilizing optimistic concurrency control to prevent race conditions.
 *   **Public Verification**: Issued letters can be verified by the public using a unique QR code or verification URL, ensuring authenticity and detecting revocations.
 *   **Security**: Role-Based Access Control (RBAC) and strict Row Level Security (RLS) on the database.
+
+## Key Features
+
+### Role-Based Access Control (RBAC)
+The system defines three primary roles to ensure secure operations:
+*   **User**: Can create draft letters.
+*   **Approver**: Can review and approve letters.
+*   **Admin**: Has elevated permissions for system management and overriding approvals if necessary.
+
+### Committee Workflows
+Letters can be assigned to specific committees for specialized review.
+*   If a letter is assigned to a committee (`committee_id`), it must be approved by a member of that committee.
+*   These approvals are handled via a dedicated endpoint: `/api/letters/:id/committee-approve`.
+*   Standard approvers who are not committee members cannot approve these letters.
+
+### Atomic Issuance
+To maintain data integrity during high-volume issuance:
+*   The system uses a custom PostgreSQL RPC function `issue_letter`.
+*   It implements **Optimistic Concurrency Control** by requiring an expected version number (`p_expected_version`) to prevent race conditions during version generation.
 
 ## Workflow
 
@@ -120,13 +139,20 @@ npm run build -w web
 
 ### Smoke Test (End-to-End)
 
-A smoke test script is provided to verify the full lifecycle of a letter (Create -> Approve -> Issue -> Verify) and validate security controls (RLS).
+A comprehensive smoke test script verifies the full lifecycle of a letter and security controls.
 
 1.  Ensure the API is running (`npm run dev -w @mcc/api`).
 2.  Run the smoke test:
     ```bash
     node scripts/smoke-test.js
     ```
+
+**What it tests:**
+*   **Lifecycle**: Create -> Approve -> Issue -> Verify.
+*   **RBAC**: Verifies that specific roles (User, Approver, Issuer) are enforced.
+*   **Committee Validation**: Ensures only committee members can approve committee-assigned letters.
+*   **Idempotency**: Verifies that re-issuing the same letter returns the existing verification artifact without side effects.
+*   **Security**: Checks that endpoints block unauthorized actions (e.g., standard approval on committee letters).
 
 ### Unit Tests
 
