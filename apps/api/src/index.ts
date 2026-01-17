@@ -200,7 +200,13 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { id, context, department_id, tag_ids, content, committee_id } = req.body;
+    const { id, context, tag_ids, content } = req.body;
+    let { department_id, committee_id } = req.body;
+
+    // Sanitize UUIDs: Convert empty strings to null
+    if (department_id === '') department_id = null;
+    if (committee_id === '') committee_id = null;
+
     const source_ip = req.ip || '0.0.0.0';
 
     if (!content) {
@@ -424,7 +430,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
     if (rpcError) {
         if (rpcError.message.includes('Version Mismatch')) {
-             return res.status(409).json({ error: 'Issuance conflict: Version mismatch. Please try again.' });
+            return res.status(409).json({ error: 'Issuance conflict: Version mismatch. Please try again.' });
         }
         return res.status(500).json({ error: 'Issuance failed: ' + rpcError.message });
     }
@@ -454,7 +460,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
     } catch (pdfError) {
         console.error('PDF Generation Failed:', pdfError);
-         // Update pdf_status to FAILED
+        // Update pdf_status to FAILED
         await supabase
             .from('issuances')
             .update({ pdf_status: 'FAILED' })
@@ -635,7 +641,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
             .single();
 
         if (memberError || !member) {
-             return res.status(403).json({ error: 'User is not a member of the assigned committee.' });
+            return res.status(403).json({ error: 'User is not a member of the assigned committee.' });
         }
     }
 

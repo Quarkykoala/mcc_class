@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import './App.css';
+// import './App.css'; // Disabled to rely on Tailwind/shadcn theme
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Textarea } from "@/components/ui/textarea"
+import { Loader2, Lock, ShieldCheck, Mail, FileCheck, LogOut } from "lucide-react"
 
 const API_BASE = 'http://localhost:3000/api';
 
@@ -94,9 +104,9 @@ function App() {
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
     if (!session) return new Response(null, { status: 401, statusText: "Unauthorized" });
     const headers = {
-        ...options.headers,
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json'
+      ...options.headers,
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json'
     };
     return fetch(url, { ...options, headers });
   };
@@ -155,15 +165,15 @@ function App() {
   };
 
   const handleSignUp = async () => {
-      setAuthLoading(true);
-      setAuthError(null);
-      const { error } = await supabase.auth.signUp({
-          email,
-          password
-      });
-      setAuthLoading(false);
-      if (error) setAuthError(error.message);
-      else alert('Check your email for the login link!');
+    setAuthLoading(true);
+    setAuthError(null);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password
+    });
+    setAuthLoading(false);
+    if (error) setAuthError(error.message);
+    else alert('Check your email for the login link!');
   };
 
 
@@ -187,8 +197,8 @@ function App() {
         fetchLetters();
         fetchAuditLogs();
       } else {
-          const err = await res.json();
-          alert(`Error: ${err.error}`);
+        const err = await res.json();
+        alert(`Error: ${err.error}`);
       }
     } finally {
       setLoading(false);
@@ -218,15 +228,6 @@ function App() {
 
   const handleCommitteeApprove = async (id: string) => {
     if (committees.length === 0) return;
-    // For simplicity, defaulting to first committee.
-    // In real app, UI should allow selecting committee if multiple apply,
-    // but the letter is assigned to one. The API figures out if valid.
-    // The API needs committee_id in body though?
-    // Checking index.ts: it uses letter.committee_id from DB, but still expects it in body?
-    // Wait, the API code: `const { committee_id } = req.body;` is NOT used in `committee-approve` endpoint!
-    // It fetches letter, gets `committee_id = letter.committee_id`.
-    // It ignores body committee_id.
-    // So I can remove it from body.
 
     setLoading(true);
     try {
@@ -260,16 +261,16 @@ function App() {
       });
       const data = await res.json();
       if (res.ok) {
-          if (data.pdf) {
-            const win = window.open();
-            if (win) {
-              win.document.write(`<iframe src="${data.pdf}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
-            }
+        if (data.pdf) {
+          const win = window.open();
+          if (win) {
+            win.document.write(`<iframe src="${data.pdf}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
           }
-          fetchLetters();
-          fetchAuditLogs();
+        }
+        fetchLetters();
+        fetchAuditLogs();
       } else {
-          alert(`Error: ${data.error}`);
+        alert(`Error: ${data.error}`);
       }
     } finally {
       setLoading(false);
@@ -346,265 +347,363 @@ function App() {
   // Verification View (Public or Protected by Key)
   if (verificationData) {
     return (
-      <div className="container verification-view">
-        <header><h1>Document Verification</h1></header>
-        <div className={`verification-card ${verificationData.valid ? 'valid' : 'invalid'}`}>
-          {verificationData.valid ? (
-            <>
-              <div className="status-header">✅ AUTHENTIC DOCUMENT</div>
-              <div className="details">
-                <p><strong>Context:</strong> {verificationData.document_details.context}</p>
-                <p><strong>Department:</strong> {verificationData.document_details.department}</p>
-                <p><strong>Status:</strong> {verificationData.document_details.status}</p>
-                <p><strong>Approved At:</strong> {new Date(verificationData.document_details.approved_at).toLocaleString()}</p>
+      <div className="container min-h-screen flex flex-col items-center justify-center p-4">
+        <Card className={`w-full max-w-lg shadow-2xl ${verificationData.valid ? 'border-green-500' : 'border-red-500'}`}>
+          <CardHeader>
+            <CardTitle>{verificationData.valid ? '✅ Authentic Document' : '❌ Invalid Document'}</CardTitle>
+            <CardDescription>{verificationData.valid ? 'The document integrity has been verified.' : 'The document appears to be tampered with or revoked.'}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {verificationData.valid && (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Context</span>
+                  <span className="font-medium">{verificationData.document_details.context}</span>
+                </div>
+                <div className="flex justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Department</span>
+                  <span className="font-medium">{verificationData.document_details.department}</span>
+                </div>
+                <div className="flex justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Status</span>
+                  <Badge variant="outline">{verificationData.document_details.status}</Badge>
+                </div>
+                <div className="flex justify-between pt-2">
+                  <span className="text-muted-foreground">Approved At</span>
+                  <span className="font-medium">{new Date(verificationData.document_details.approved_at).toLocaleString()}</span>
+                </div>
               </div>
-            </>
-          ) : (
-            <div className="status-header">❌ INVALID OR TAMPERED</div>
-          )}
-          <button className="back-btn" onClick={() => window.location.href = '/'}>Back to Dashboard</button>
-        </div>
+            )}
+            {!verificationData.valid && <p className="text-destructive font-medium">This document is not valid.</p>}
+          </CardContent>
+          <CardFooter>
+            <Button variant="outline" className="w-full" onClick={() => window.location.href = '/'}>Back to Dashboard</Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
 
   if (requiresAccessKey) {
     return (
-      <div className="container verification-view">
-        <header><h1>Document Verification</h1></header>
-        <div className="verification-card gated">
-          <div className="status-header">🔒 AUTHORIZED ACCESS REQUIRED</div>
-          <p className="verification-message">
-            Enter the verification access key to view document authenticity.
-          </p>
-          <div className="verification-form">
-            <input
-              type="password"
-              placeholder="Access key"
-              value={verifyAccessKey}
-              onChange={e => setVerifyAccessKey(e.target.value)}
-            />
-            <button className="verify-btn" onClick={handleVerifyAccess}>Verify Document</button>
-          </div>
-          {verifyError && <p className="error-text">{verifyError}</p>}
-          <button className="back-btn" onClick={() => window.location.href = '/'}>Back to Dashboard</button>
-        </div>
+      <div className="container min-h-screen flex flex-col items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-blue-400">Locked Document</CardTitle>
+            <CardDescription>Authorized access is required to verify this document.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Access Key</Label>
+              <Input
+                type="password"
+                placeholder="Enter access key..."
+                value={verifyAccessKey}
+                onChange={e => setVerifyAccessKey(e.target.value)}
+              />
+            </div>
+            {verifyError && <p className="text-destructive text-sm">{verifyError}</p>}
+          </CardContent>
+          <CardFooter className="flex flex-col gap-2">
+            <Button className="w-full" onClick={handleVerifyAccess}>Verify</Button>
+            <Button variant="ghost" className="w-full" onClick={() => window.location.href = '/'}>Back to Dashboard</Button>
+          </CardFooter>
+        </Card>
       </div>
-    );
+    )
   }
 
   // Auth View
   if (!session) {
     return (
-      <div className="container auth-container">
-        <h1>Letter Issuance System</h1>
-        <div className="auth-box">
-          <h2>Sign In</h2>
-          {authError && <p className="error-text">{authError}</p>}
-          <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <label>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <button type="submit" disabled={authLoading}>
-              {authLoading ? 'Loading...' : 'Sign In'}
-            </button>
-          </form>
-          <div style={{marginTop: '1rem'}}>
-               <button onClick={handleSignUp} disabled={authLoading} className="secondary-btn">
-                   Sign Up
-               </button>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-background">
+        {/* Background decoration */}
+        <div className="absolute top-0 left-0 w-full h-full bg-grid-white/[0.02] -z-10" />
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-primary/20 rounded-full blur-[100px]" />
+        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-accent/20 rounded-full blur-[100px]" />
+
+        <div className="mb-8 text-center">
+          <div className="flex items-center justify-center mb-4">
+            <ShieldCheck className="h-12 w-12 text-primary" />
           </div>
+          <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-2 bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+            MCC Letter Issuance
+          </h1>
+          <p className="text-muted-foreground">Secure document generation and verification system.</p>
         </div>
+
+        <Card className="w-full max-w-md shadow-xl border-border/50 bg-card/50 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle>Sign In</CardTitle>
+            <CardDescription>Enter your credentials to access the system.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {authError && <p className="text-destructive text-sm font-medium">{authError}</p>}
+              <Button type="submit" className="w-full" disabled={authLoading}>
+                {authLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Sign In'}
+              </Button>
+            </form>
+          </CardContent>
+          <CardFooter>
+            <div className="w-full text-center text-sm">
+              Don't have an account? <span className="text-primary hover:underline cursor-pointer" onClick={handleSignUp}>Sign Up</span>
+            </div>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="container">
-      <header>
-        <h1>Letter Issuance System</h1>
-        <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
-            <span>{session.user.email}</span>
-            <button onClick={() => supabase.auth.signOut()} className="small-btn">Sign Out</button>
-        </div>
-        <nav className="main-nav">
-          <button onClick={() => setView('DASHBOARD')} className={view === 'DASHBOARD' ? 'active' : ''}>Dashboard</button>
-          <button onClick={() => setView('AUDIT')} className={view === 'AUDIT' ? 'active' : ''}>Audit Log</button>
-        </nav>
-        <div className="context-switcher">
-          <button className={context === 'COMPANY' ? 'active' : ''} onClick={() => setContext('COMPANY')}>Company Ops</button>
-          <button className={context === 'BCBA' ? 'active' : ''} onClick={() => setContext('BCBA')}>BCBA Association</button>
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-14 items-center">
+          <div className="mr-4 hidden md:flex">
+            <a className="mr-6 flex items-center space-x-2" href="/">
+              <ShieldCheck className="h-6 w-6" />
+              <span className="hidden font-bold sm:inline-block">MCC Issuance</span>
+            </a>
+          </div>
+
+          <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
+            <nav className="flex items-center space-x-2">
+              <Tabs value={context} onValueChange={(v: string) => setContext(v as any)} className="w-[400px]">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="COMPANY">Company Ops</TabsTrigger>
+                  <TabsTrigger value="BCBA">BCBA Association</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </nav>
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-muted-foreground mr-2">
+                {session.user.email}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => supabase.auth.signOut()}>
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
         </div>
       </header>
 
-      {view === 'AUDIT' ? (
-        <section className="audit-section">
-          <h2>System Audit Trail</h2>
-          <div className="audit-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>ID</th>
-                  <th>Timestamp</th>
-                  <th>Metadata</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditLogs.map(log => (
-                  <tr key={log.id}>
-                    <td><span className={`action-badge ${log.action.toLowerCase()}`}>{log.action}</span></td>
-                    <td>{log.entity_type}</td>
-                    <td className="monospace">{log.entity_id.substring(0, 8)}...</td>
-                    <td>{new Date(log.created_at).toLocaleString()}</td>
-                    <td><pre>{JSON.stringify(log.metadata)}</pre></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="email-links">
-            <h3>Email Classifier Linkage</h3>
-            <p>Recent inbox-to-letter matches captured for follow-up.</p>
-            <div className="email-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Letter</th>
-                    <th>Job Ref</th>
-                    <th>Sender</th>
-                    <th>Subject</th>
-                    <th>Received</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {emailLinks.map(link => (
-                    <tr key={link.id}>
-                      <td className="monospace">{link.letter_id?.substring(0, 8)}...</td>
-                      <td>{link.job_reference || '-'}</td>
-                      <td>{link.sender || '-'}</td>
-                      <td>{link.subject || '-'}</td>
-                      <td>{link.received_at ? new Date(link.received_at).toLocaleString() : '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <main>
-          <section className="creation-section">
-            <h2>Create New Letter</h2>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>Department</label>
-                <select value={selectedDept} onChange={e => setSelectedDept(e.target.value)} required>
-                  <option value="">Select Department</option>
-                  {departments.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
+      <main className="flex-1 container py-6 grid gap-6">
 
-              <div className="form-group">
-                <label>Tags</label>
-                <div className="tag-grid">
-                  {tags.map(t => (
-                    <label key={t.id} className="tag-item">
-                      <input
-                        type="checkbox"
-                        value={t.id}
-                        checked={selectedTags.includes(t.id)}
-                        onChange={e => {
-                          if (e.target.checked) setSelectedTags([...selectedTags, t.id]);
-                          else setSelectedTags(selectedTags.filter(id => id !== t.id));
-                        }}
-                      />
-                      {t.name}
-                    </label>
+        <Tabs value={view} onValueChange={(v: string) => setView(v as any)} className="w-full">
+          <div className="flex items-center justify-between mb-4">
+            <TabsList>
+              <TabsTrigger value="DASHBOARD">Dashboard</TabsTrigger>
+              <TabsTrigger value="AUDIT">Audit Log</TabsTrigger>
+            </TabsList>
+          </div>
+
+
+          <TabsContent value="DASHBOARD" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-[350px_1fr]">
+              <section className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Create Letter</CardTitle>
+                    <CardDescription>Draft a new letter for approval.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Department</Label>
+                        <Select value={selectedDept} onValueChange={setSelectedDept}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {departments.map(d => (
+                              <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Tags</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {tags.map(t => (
+                            <div key={t.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={t.id}
+                                checked={selectedTags.includes(t.id)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setSelectedTags([...selectedTags, t.id]);
+                                  else setSelectedTags(selectedTags.filter(id => id !== t.id));
+                                }}
+                              />
+                              <Label htmlFor={t.id} className="text-xs">{t.name}</Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Content</Label>
+                        <Textarea
+                          className="min-h-[120px]"
+                          placeholder="Draft content..."
+                          value={content}
+                          onChange={e => setContent(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <Button type="submit" className="w-full" disabled={loading}>
+                        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Create Draft
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </section>
+
+              <section className="grid gap-4 content-start">
+                <h2 className="text-lg font-semibold tracking-tight">Active Letters</h2>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2">
+                  {letters.map((l: any) => (
+                    <Card key={l.id} className={`transition-all hover:shadow-md ${l.status === 'APPROVED' || l.status === 'ISSUED' ? 'bg-muted/50 border-primary/20' : ''}`}>
+                      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                        <div className="space-y-1">
+                          <CardTitle className="text-base font-medium">{l.departments?.name}</CardTitle>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={l.context === 'COMPANY' ? 'default' : 'secondary'}>{l.context}</Badge>
+                            <Badge variant="outline">{l.status}</Badge>
+                          </div>
+                        </div>
+                        {(l.status === 'APPROVED' || l.status === 'ISSUED') && <Lock className="h-4 w-4 text-muted-foreground" />}
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {l.letter_tags?.map((lt: any) => (
+                            <Badge key={lt.tags.name} variant="secondary" className="text-[10px]">{lt.tags.name}</Badge>
+                          ))}
+                        </div>
+                      </CardContent>
+                      <CardFooter className="flex flex-col gap-2 pt-2">
+                        {l.status === 'DRAFT' && (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            variant={l.context === 'COMPANY' ? 'default' : 'secondary'}
+                            onClick={() => l.context === 'COMPANY' ? handleApprove(l.id) : handleCommitteeApprove(l.id)}
+                            disabled={loading}
+                          >
+                            <FileCheck className="mr-2 h-4 w-4" />
+                            {l.context === 'COMPANY' ? 'Approve' : 'Committee Approve'}
+                          </Button>
+                        )}
+                        {l.status === 'APPROVED' && (
+                          <Button size="sm" className="w-full" onClick={() => handleIssue(l.id)} disabled={loading}>
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                            Issue Letter
+                          </Button>
+                        )}
+                        {l.status === 'ISSUED' && (
+                          <div className="flex gap-2 w-full">
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => handleAcknowledge(l.id)} disabled={loading}>Link Ack</Button>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => handleEmailLink(l.id)} disabled={loading}>Link Email</Button>
+                          </div>
+                        )}
+                        {(l.status !== 'ISSUED' && l.status !== 'APPROVED') && (
+                          <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => handleEmailLink(l.id)} disabled={loading}>
+                            <Mail className="mr-2 h-3 w-3" />
+                            Link Email
+                          </Button>
+                        )}
+                      </CardFooter>
+                    </Card>
                   ))}
                 </div>
-              </div>
+              </section>
+            </div>
+          </TabsContent>
 
-              <div className="form-group">
-                <label>Content</label>
-                <textarea
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                  placeholder="Draft your letter here..."
-                  required
-                />
-              </div>
+          <TabsContent value="AUDIT">
+            <Card>
+              <CardHeader>
+                <CardTitle>Audit Log</CardTitle>
+                <CardDescription>Recent system activity and security events.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr className="text-left">
+                        <th className="p-3 font-medium text-muted-foreground">Action</th>
+                        <th className="p-3 font-medium text-muted-foreground">Entity</th>
+                        <th className="p-3 font-medium text-muted-foreground">ID</th>
+                        <th className="p-3 font-medium text-muted-foreground">Time</th>
+                        <th className="p-3 font-medium text-muted-foreground">Metadata</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map(log => (
+                        <tr key={log.id} className="border-t">
+                          <td className="p-3"><Badge variant="outline">{log.action}</Badge></td>
+                          <td className="p-3">{log.entity_type}</td>
+                          <td className="p-3 font-mono text-xs text-muted-foreground">{log.entity_id.substring(0, 8)}...</td>
+                          <td className="p-3 text-muted-foreground">{new Date(log.created_at).toLocaleString()}</td>
+                          <td className="p-3"><pre className="max-w-[200px] overflow-hidden text-xs text-muted-foreground truncate">{JSON.stringify(log.metadata)}</pre></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-              <button type="submit" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Draft'}
-              </button>
-            </form>
-          </section>
-
-          <section className="list-section">
-            <h2>Existing Letters</h2>
-            <div className="letter-grid">
-              {letters.map((l: any) => (
-                <div key={l.id} className={`letter-card ${l.status === 'APPROVED' || l.status === 'ISSUED' ? 'locked' : ''}`}>
-                  <span className={`badge ${l.context.toLowerCase()}`}>{l.context}</span>
-                  {(l.status === 'APPROVED' || l.status === 'ISSUED') && <span className="lock-icon">LOCK</span>}
-                  <h3>{l.departments?.name}</h3>
-                  <p className="status">Status: <strong>{l.status}</strong></p>
-                  <div className="tags">
-                    {l.letter_tags?.map((lt: any) => (
-                      <span key={lt.tags.name} className="tag-chip">{lt.tags.name}</span>
-                    ))}
+                <div className="mt-8">
+                  <h3 className="text-lg font-semibold mb-4">Email Linkages</h3>
+                  <div className="rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr className="text-left">
+                          <th className="p-3 font-medium text-muted-foreground">Letter</th>
+                          <th className="p-3 font-medium text-muted-foreground">Reference</th>
+                          <th className="p-3 font-medium text-muted-foreground">Sender</th>
+                          <th className="p-3 font-medium text-muted-foreground">Received</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emailLinks.map(link => (
+                          <tr key={link.id} className="border-t">
+                            <td className="p-3 font-mono text-xs">{link.letter_id?.substring(0, 8)}...</td>
+                            <td className="p-3">{link.job_reference}</td>
+                            <td className="p-3">{link.sender}</td>
+                            <td className="p-3 text-muted-foreground">{link.received_at ? new Date(link.received_at).toLocaleDateString() : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  {l.status === 'DRAFT' && (
-                    <>
-                      {l.context === 'COMPANY' ? (
-                        <button className="approve-btn" onClick={() => handleApprove(l.id)} disabled={loading}>
-                          Approve
-                        </button>
-                      ) : (
-                        <button className="approve-btn committee" onClick={() => handleCommitteeApprove(l.id)} disabled={loading}>
-                          Committee Approve
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {l.status === 'APPROVED' && (
-                    <button className="issue-btn" onClick={() => handleIssue(l.id)} disabled={loading}>
-                      Issue Letter
-                    </button>
-                  )}
-                  {l.status === 'ISSUED' && (
-                    <button className="ack-btn" onClick={() => handleAcknowledge(l.id)} disabled={loading}>
-                      Link Acknowledgement
-                    </button>
-                  )}
-                  <button className="email-btn" onClick={() => handleEmailLink(l.id)} disabled={loading}>
-                    Link Email
-                  </button>
                 </div>
-              ))}
-            </div>
-          </section>
-        </main>
-      )}
+
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
     </div>
   );
 }
