@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient, createClient } from '@supabase/supabase-js';
 
 // Extend Express Request type
 declare global {
@@ -14,7 +14,7 @@ declare global {
     }
 }
 
-export const authMiddleware = (supabase: SupabaseClient) => async (
+export const authMiddleware = (supabaseUrl: string, supabaseKey: string) => async (
     req: Request,
     res: Response,
     next: NextFunction
@@ -25,7 +25,10 @@ export const authMiddleware = (supabase: SupabaseClient) => async (
             id: '00000000-0000-0000-0000-000000000001',
             roles: ['ADMIN', 'APPROVER', 'ISSUER']
         };
-        req.supabase = supabase;
+        // For demo mode, we just use a fresh client with the key (no user token)
+        // Or we could mock it. But let's just create a base client.
+        const demoClient = createClient(supabaseUrl, supabaseKey);
+        req.supabase = demoClient;
         return next();
     }
 
@@ -35,16 +38,23 @@ export const authMiddleware = (supabase: SupabaseClient) => async (
         return res.status(401).json({ error: 'Missing Authorization header' });
     }
 
+    // Create a scoped client for this request (acts as the user)
+    const scopedClient = createClient(supabaseUrl, supabaseKey, {
+        global: {
+            headers: { Authorization: authHeader }
+        }
+    });
+
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await scopedClient.auth.getUser(token);
 
     if (authError || !user) {
         console.error('Auth verification failed:', authError);
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // Fetch roles using the verified user ID
-    const { data: roles, error: rolesError } = await supabase
+    // Fetch roles using the scoped client (relies on RLS 'Users can read own roles')
+    const { data: roles, error: rolesError } = await scopedClient
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id);
@@ -58,7 +68,7 @@ export const authMiddleware = (supabase: SupabaseClient) => async (
         id: user.id,
         roles: roles ? roles.map((r: any) => r.role) : []
     };
-    req.supabase = supabase;
+    req.supabase = scopedClient;
 
     next();
 };

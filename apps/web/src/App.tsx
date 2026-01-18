@@ -49,6 +49,8 @@ function App() {
   const [emailLinks, setEmailLinks] = useState<any[]>([]);
   const [view, setView] = useState<'DASHBOARD' | 'AUDIT'>('DASHBOARD');
   const [committees, setCommittees] = useState<any[]>([]);
+  // State for expanded audit log
+  const [selectedLog, setSelectedLog] = useState<any>(null);
 
   const coerceArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
@@ -476,6 +478,32 @@ function App() {
               <Button type="submit" className="w-full" disabled={authLoading}>
                 {authLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Sign In'}
               </Button>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">Or</span>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={authLoading}
+                onClick={async () => {
+                  setAuthLoading(true);
+                  setAuthError(null);
+                  const { error } = await supabase.auth.signInWithPassword({
+                    email: 'demo@mcc.local',
+                    password: 'Demo@12345',
+                  });
+                  setAuthLoading(false);
+                  if (error) setAuthError(error.message);
+                }}
+              >
+                Login as Guest / Demo
+              </Button>
             </form>
           </CardContent>
           <CardFooter>
@@ -488,8 +516,59 @@ function App() {
     );
   }
 
+
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* Detail Modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <Card className="w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+            <CardHeader className="border-b bg-muted/40">
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Audit Log Details</CardTitle>
+                  <CardDescription>Transaction ID: <span className="font-mono">{selectedLog.id}</span></CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedLog(null)}><LogOut className="h-4 w-4" /></Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 overflow-auto">
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Action</span>
+                    <Badge variant="outline">{selectedLog.action}</Badge>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Entity</span>
+                    <span className="font-medium">{selectedLog.entity_type}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Entity ID</span>
+                    <span className="font-mono">{selectedLog.entity_id}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">Timestamp</span>
+                    <span>{new Date(selectedLog.created_at).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-muted-foreground block mb-2 font-medium">Full Metadata Payload</span>
+                  <pre className="p-4 rounded-md border font-mono text-xs overflow-auto whitespace-pre-wrap bg-card text-card-foreground">
+                    {JSON.stringify(selectedLog.metadata, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="border-t bg-muted/40 p-4 justify-end">
+              <Button onClick={() => setSelectedLog(null)}>Close</Button>
+            </CardFooter>
+          </Card>
+        </div>
+      )}
+
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center">
           <div className="mr-4 hidden md:flex">
@@ -672,12 +751,20 @@ function App() {
                     </thead>
                     <tbody>
                       {auditLogs.map(log => (
-                        <tr key={log.id} className="border-t">
+                        <tr
+                          key={log.id}
+                          className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedLog(log)}
+                        >
                           <td className="p-3"><Badge variant="outline">{log.action}</Badge></td>
                           <td className="p-3">{log.entity_type}</td>
                           <td className="p-3 font-mono text-xs text-muted-foreground">{log.entity_id.substring(0, 8)}...</td>
                           <td className="p-3 text-muted-foreground">{new Date(log.created_at).toLocaleString()}</td>
-                          <td className="p-3"><pre className="max-w-[200px] overflow-hidden text-xs text-muted-foreground truncate">{JSON.stringify(log.metadata)}</pre></td>
+                          <td className="p-3">
+                            <code className="text-xs bg-muted px-1 py-0.5 rounded text-muted-foreground">
+                              Click to view details
+                            </code>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

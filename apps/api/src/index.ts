@@ -155,7 +155,7 @@ app.get('/api/verify/:token', async (req: Request, res: Response) => {
 // Moved here to ensure GET routes are also protected if they return sensitive data.
 // If GET /letters is public, move it ABOVE this line.
 // Assuming GET /letters contains sensitive drafts/approvals, it should be protected.
-app.use(authMiddleware(supabase));
+app.use(authMiddleware(supabaseUrl, supabaseKey));
 
 // --- Letters (Read Public/Mixed, Write Protected) ---
 
@@ -167,7 +167,7 @@ app.get('/api/letters', async (req: Request, res: Response) => {
     const to = from + limit - 1;
 
     // Base Query
-    let query = supabase.from('letters').select(`
+    let query = req.supabase.from('letters').select(`
         id, context, status, created_at,
         departments (name),
         letter_tags (
@@ -215,7 +215,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
     if (id) {
         // UPDATE
-        const { data: currentLetter, error: letterError } = await supabase
+        const { data: currentLetter, error: letterError } = await req.supabase
             .from('letters')
             .select('id, context, department_id, status, created_by')
             .eq('id', id)
@@ -234,7 +234,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
         if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this draft.' });
 
         // Update Content
-        const { data: updateData, error: updateError } = await supabase
+        const { data: updateData, error: updateError } = await req.supabase
             .from('letters')
             .update({
                 department_id: department_id || currentLetter.department_id,
@@ -248,7 +248,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
         if (updateError) return res.status(500).json({ error: updateError.message });
 
-        await supabase.from('audit_logs').insert({
+        await req.supabase.from('audit_logs').insert({
             action: 'UPDATE',
             entity_type: 'LETTER',
             entity_id: id,
@@ -257,7 +257,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
         // FORCE VERSION SNAPSHOT ON EVERY UPDATE
         try {
-            await handleLetterVersionUpdate(supabase, id, content, userId);
+            await handleLetterVersionUpdate(req.supabase, id, content, userId);
         } catch (versionError: any) {
             console.error('Versioning failed:', versionError);
             return res.status(500).json({ error: 'Failed to create version snapshot: ' + versionError.message });
@@ -267,7 +267,7 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
     } else {
         // CREATE
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('letters')
             .insert({
                 context,
@@ -289,13 +289,15 @@ app.post('/api/letters', async (req: Request, res: Response) => {
                 letter_id: data.id,
                 tag_id: tagId
             }));
-            await supabase.from('letter_tags').insert(tagInserts);
+            await req.supabase.from('letter_tags').insert(tagInserts);
         }
 
         // Initial Version Snapshot
-        await handleLetterVersionUpdate(supabase, data.id, content, userId);
+        // Note: handleLetterVersionUpdate uses 'supabase' passed to it. We need it to use req.supabase.
+        // We will update the call site to use req.supabase.
+        await handleLetterVersionUpdate(req.supabase, data.id, content, userId);
 
-        await supabase.from('audit_logs').insert({
+        await req.supabase.from('audit_logs').insert({
             action: 'CREATE',
             entity_type: 'LETTER',
             entity_id: data.id,
@@ -319,7 +321,7 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     const { comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    const { data: letter, error: fetchError } = await supabase
+    const { data: letter, error: fetchError } = await req.supabase
         .from('letters')
         .select('*')
         .eq('id', id)
@@ -333,21 +335,21 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
         return res.status(403).json({ error: 'Letters assigned to a committee must be approved via the Committee Approval endpoint.' });
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await req.supabase
         .from('letters')
         .update({ status: 'APPROVED' })
         .eq('id', id);
 
     if (updateError) return res.status(500).json({ error: updateError.message });
 
-    await supabase.from('approvals').insert({
+    await req.supabase.from('approvals').insert({
         letter_id: id,
         approver_id: userId, // Use Auth User
         comment,
         source_ip
     });
 
-    await supabase.from('audit_logs').insert({
+    await req.supabase.from('audit_logs').insert({
         action: 'APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
@@ -370,7 +372,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     const { channel, printer_id } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    const { data: letter, error: fetchError } = await supabase
+    const { data: letter, error: fetchError } = await req.supabase
         .from('letters')
         .select('*, departments(*), letter_tags(tag_id)') // OPTIMIZED: Fetch only tag_id
         .eq('id', id)
@@ -389,7 +391,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
 
     // 1. Get next version number (Optimistic check for hash generation)
     // NOTE: The RPC will re-calculate/validate the version number atomically.
-    const { data: versions } = await supabase
+    const { data: versions } = await req.supabase
         .from('letter_versions')
         .select('version_number')
         .eq('letter_id', id)
@@ -415,7 +417,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     const verifyUrl = `${clientUrl}/verify/${verificationToken}`;
 
     // 4. Atomic Issuance RPC
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('issue_letter', {
+    const { data: rpcResult, error: rpcError } = await req.supabase.rpc('issue_letter', {
         p_letter_id: id,
         p_issuer_id: userId,
         p_content_hash: contentHash,
@@ -453,7 +455,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         });
 
         // Update pdf_status to READY
-        await supabase
+        await req.supabase
             .from('issuances')
             .update({ pdf_status: 'READY' })
             .eq('id', rpcResult.issuance_id);
@@ -461,7 +463,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     } catch (pdfError) {
         console.error('PDF Generation Failed:', pdfError);
         // Update pdf_status to FAILED
-        await supabase
+        await req.supabase
             .from('issuances')
             .update({ pdf_status: 'FAILED' })
             .eq('id', rpcResult.issuance_id);
@@ -487,9 +489,9 @@ app.post('/api/letters/:id/revoke', async (req: Request, res: Response) => {
     const { id } = req.params;
     const source_ip = req.ip || '0.0.0.0';
 
-    await supabase.from('letters').update({ status: 'REVOKED' }).eq('id', id);
+    await req.supabase.from('letters').update({ status: 'REVOKED' }).eq('id', id);
 
-    await supabase.from('audit_logs').insert({
+    await req.supabase.from('audit_logs').insert({
         action: 'REVOKE',
         entity_type: 'LETTER',
         entity_id: id,
@@ -506,7 +508,7 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
     const { letter_id, job_reference, file_url } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    const { error } = await supabase.from('acknowledgements').insert({
+    const { error } = await req.supabase.from('acknowledgements').insert({
         letter_id,
         job_reference,
         file_url,
@@ -516,7 +518,7 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    await supabase.from('audit_logs').insert({
+    await req.supabase.from('audit_logs').insert({
         action: 'ACKNOWLEDGE',
         entity_type: 'LETTER',
         entity_id: letter_id,
@@ -530,7 +532,7 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
 
 app.get('/api/email-links', async (req: Request, res: Response) => {
     const { letter_id, job_reference } = req.query;
-    let query = supabase.from('email_links').select('*').order('created_at', { ascending: false });
+    let query = req.supabase.from('email_links').select('*').order('created_at', { ascending: false });
 
     if (letter_id) {
         query = query.eq('letter_id', String(letter_id));
@@ -555,7 +557,7 @@ app.post('/api/email-links', async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'letter_id or job_reference is required.' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
         .from('email_links')
         .insert({
             letter_id,
@@ -572,7 +574,7 @@ app.post('/api/email-links', async (req: Request, res: Response) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    await supabase.from('audit_logs').insert({
+    await req.supabase.from('audit_logs').insert({
         action: 'EMAIL_LINK',
         entity_type: 'LETTER',
         entity_id: letter_id || data.letter_id,
@@ -584,7 +586,7 @@ app.post('/api/email-links', async (req: Request, res: Response) => {
 });
 
 app.get('/api/audit-logs', async (req: Request, res: Response) => {
-    const { data, error } = await supabase
+    const { data, error } = await req.supabase
         .from('audit_logs')
         .select('*')
         .order('created_at', { ascending: false })
@@ -596,7 +598,7 @@ app.get('/api/audit-logs', async (req: Request, res: Response) => {
 
 app.get('/api/committees', async (req: Request, res: Response) => {
     const { context } = req.query;
-    const query = supabase.from('committees').select('*');
+    const query = req.supabase.from('committees').select('*');
     if (context) {
         query.eq('context', String(context));
     }
@@ -614,7 +616,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     const source_ip = req.ip || '0.0.0.0';
 
     // 1. Fetch Letter first to get the authoritative committee_id
-    const { data: letter, error: fetchError } = await supabase
+    const { data: letter, error: fetchError } = await req.supabase
         .from('letters')
         .select('*')
         .eq('id', id)
@@ -633,7 +635,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     // Admin can always approve. Otherwise, check committee membership.
     const isAdmin = req.user?.roles.includes('ADMIN');
     if (!isAdmin) {
-        const { data: member, error: memberError } = await supabase
+        const { data: member, error: memberError } = await req.supabase
             .from('committee_members')
             .select('user_id')
             .eq('committee_id', committee_id)
@@ -646,21 +648,21 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
     }
 
     // Approve
-    const { error: updateError } = await supabase
+    const { error: updateError } = await req.supabase
         .from('letters')
         .update({ status: 'APPROVED' })
         .eq('id', id);
 
     if (updateError) return res.status(500).json({ error: updateError.message });
 
-    await supabase.from('committee_approvals').insert({
+    await req.supabase.from('committee_approvals').insert({
         letter_id: id,
         committee_id,
         approver_id: userId,
         metadata: { comment, source_ip }
     });
 
-    await supabase.from('audit_logs').insert({
+    await req.supabase.from('audit_logs').insert({
         action: 'COMMITTEE_APPROVE',
         entity_type: 'LETTER',
         entity_id: id,
