@@ -7,7 +7,7 @@ The **MCC Letter Issuance System** is a secure platform designed to manage the d
 This system ensures:
 *   **Drafting Workflow**: Structured letter creation with context, departments, and tags.
 *   **Approval Hierarchy**: Role-based approvals (Creator, Approver, Issuer) and Committee-based approvals.
-*   **Atomic Issuance**: Letters are issued with immutable version snapshots and cryptographic content hashes, utilizing optimistic concurrency control to prevent race conditions.
+*   **Atomic Issuance**: Letters are issued with immutable version snapshots stored in `letter_versions` and cryptographic content hashes, utilizing optimistic concurrency control to prevent race conditions.
 *   **Public Verification**: Issued letters can be verified by the public using a unique QR code or verification URL, ensuring authenticity and detecting revocations.
 *   **Security**: Role-Based Access Control (RBAC) and strict Row Level Security (RLS) on the database.
 
@@ -122,6 +122,22 @@ npm run dev -w web
 cd apps/web && npm run dev
 ```
 *The Web Client runs on http://localhost:5173 by default.*
+
+### Demo Mode
+
+For rapid development and testing without setting up full Supabase Auth, you can enable **Demo Mode**.
+
+**Backend (`apps/api/.env`):**
+```env
+DEMO_MODE=true
+```
+*This bypasses JWT validation and injects a mock Admin user for all requests.*
+
+**Frontend (`apps/web/.env` or shell):**
+```env
+VITE_DEMO_MODE=true
+```
+*This sets a dummy session in the React app, bypassing the login screen.*
 
 ### Production
 
