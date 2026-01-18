@@ -53,6 +53,17 @@ function App() {
   const coerceArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
   useEffect(() => {
+    if (import.meta.env.VITE_DEMO_MODE === 'true') {
+      setSession({
+        user: {
+          id: '00000000-0000-0000-0000-000000000001',
+          email: 'demo@example.com'
+        },
+        access_token: 'demo-token'
+      });
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });

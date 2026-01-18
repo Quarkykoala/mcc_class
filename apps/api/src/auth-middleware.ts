@@ -19,6 +19,16 @@ export const authMiddleware = (supabase: SupabaseClient) => async (
     res: Response,
     next: NextFunction
 ) => {
+    // DEMO MODE BYPASS
+    if (process.env.DEMO_MODE === 'true') {
+        req.user = {
+            id: '00000000-0000-0000-0000-000000000001',
+            roles: ['ADMIN', 'APPROVER', 'ISSUER']
+        };
+        req.supabase = supabase;
+        return next();
+    }
+
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
