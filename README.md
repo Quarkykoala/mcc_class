@@ -50,8 +50,10 @@ cp apps/api/.env.example apps/api/.env
 ```
 
 #### Frontend Environment
-Create `apps/web/.env`:
+Create `apps/web/.env` (or copy the example):
 ```bash
+cp apps/web/.env.example apps/web/.env
+
 VITE_API_URL=http://localhost:3000/api
 VITE_SUPABASE_URL=<your-supabase-url>
 VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
