@@ -61,6 +61,12 @@ VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 VITE_DEMO_MODE=true
 ```
 
+#### API Environment
+Create `apps/api/.env` (or copy the example):
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
 ### 3. Run the App
 ```bash
 # Run everything (API + Frontend)
