@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Lock, ShieldCheck, Mail, FileCheck, LogOut } from "lucide-react"
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 
 interface Department {
   id: string;
@@ -54,15 +55,19 @@ function App() {
 
   const coerceArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
+  const setDemoSession = () => {
+    setSession({
+      user: {
+        id: '00000000-0000-0000-0000-000000000001',
+        email: 'demo@example.com'
+      },
+      access_token: 'demo-token'
+    });
+  };
+
   useEffect(() => {
-    if (import.meta.env.VITE_DEMO_MODE === 'true') {
-      setSession({
-        user: {
-          id: '00000000-0000-0000-0000-000000000001',
-          email: 'demo@example.com'
-        },
-        access_token: 'demo-token'
-      });
+    if (isDemoMode) {
+      setDemoSession();
       return;
     }
 
@@ -167,6 +172,10 @@ function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDemoMode) {
+      setDemoSession();
+      return;
+    }
     setAuthLoading(true);
     setAuthError(null);
     const { error } = await supabase.auth.signInWithPassword({
@@ -178,6 +187,10 @@ function App() {
   };
 
   const handleSignUp = async () => {
+    if (isDemoMode) {
+      setDemoSession();
+      return;
+    }
     setAuthLoading(true);
     setAuthError(null);
     const { error } = await supabase.auth.signUp({
@@ -357,6 +370,17 @@ function App() {
     setVerifyError(null);
   };
 
+  const handleSignOut = async () => {
+    if (isDemoMode) {
+      setSession(null);
+      setEmail('');
+      setPassword('');
+      setAuthError(null);
+      return;
+    }
+    await supabase.auth.signOut();
+  };
+
   // Verification View (Public or Protected by Key)
   if (verificationData) {
     return (
@@ -492,6 +516,10 @@ function App() {
                 className="w-full"
                 disabled={authLoading}
                 onClick={async () => {
+                  if (isDemoMode) {
+                    setDemoSession();
+                    return;
+                  }
                   setAuthLoading(true);
                   setAuthError(null);
                   const { error } = await supabase.auth.signInWithPassword({
@@ -591,7 +619,7 @@ function App() {
               <div className="text-xs text-muted-foreground mr-2">
                 {session.user.email}
               </div>
-              <Button variant="ghost" size="icon" onClick={() => supabase.auth.signOut()}>
+              <Button variant="ghost" size="icon" onClick={handleSignOut}>
                 <LogOut className="h-5 w-5" />
               </Button>
             </div>
