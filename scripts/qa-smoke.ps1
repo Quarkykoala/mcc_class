@@ -1,6 +1,5 @@
 $base = "http://localhost:3000/api"
 $userAlice = "00000000-0000-0000-0000-000000000001" # Creator
-$userBob = "00000000-0000-0000-0000-000000000002"   # Approver
 $userCharlie = "00000000-0000-0000-0000-000000000003" # Admin/Issuer
 
 function Test-Endpoint {
@@ -13,8 +12,8 @@ function Test-Endpoint {
 
     try {
         $params = @{
-            Uri = "$base$Path"
-            Method = $Method
+            Uri     = "$base$Path"
+            Method  = $Method
             Headers = $headers
         }
         if ($Body) { $params["Body"] = ($Body | ConvertTo-Json -Depth 10) }
@@ -22,11 +21,12 @@ function Test-Endpoint {
         $response = Invoke-RestMethod @params -ErrorAction Stop
         Write-Host " PASS" -ForegroundColor Green
         return $response
-    } catch {
+    }
+    catch {
         $statusCode = $_.Exception.Response.StatusCode.value__
         if ($statusCode -eq $ExpectStatus) {
-             Write-Host " PASS (Expected Failure: $statusCode)" -ForegroundColor Green
-             return $null
+            Write-Host " PASS (Expected Failure: $statusCode)" -ForegroundColor Green
+            return $null
         }
         Write-Host " FAIL ($statusCode)" -ForegroundColor Red
         Write-Host $_.Exception.Message
@@ -41,10 +41,10 @@ $depts = Invoke-RestMethod -Uri "$base/departments?context=COMPANY"
 $deptId = $depts[0].id
 
 $draft = Test-Endpoint -Name "Create Draft" -Method POST -Path "/letters" -User $userAlice -Body @{
-    context = "COMPANY"
+    context       = "COMPANY"
     department_id = $deptId
-    content = "Smoke Test Content"
-    tag_ids = @()
+    content       = "Smoke Test Content"
+    tag_ids       = @()
 }
 
 if (!$draft) { exit 1 }
@@ -52,7 +52,7 @@ $letterId = $draft.id
 
 # 2. Update Draft (Alice) - Triggers Versioning
 Test-Endpoint -Name "Update Draft" -Method POST -Path "/letters" -User $userAlice -Body @{
-    id = $letterId
+    id      = $letterId
     content = "Smoke Test Content Updated"
 }
 
@@ -79,7 +79,8 @@ Test-Endpoint -Name "Revoke Letter" -Method POST -Path "/letters/$letterId/revok
 $verifyRevoked = Invoke-RestMethod -Uri "$base/verify/$hash"
 if ($verifyRevoked.status -eq "REVOKED") {
     Write-Host "TEST: Verify Revocation... PASS" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "TEST: Verify Revocation... FAIL" -ForegroundColor Red
 }
 
