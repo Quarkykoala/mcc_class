@@ -49,6 +49,16 @@ cp apps/api/.env.example apps/api/.env
 # Fill in your SUPABASE_URL and KEYS
 ```
 
+#### Frontend Environment
+Create `apps/web/.env`:
+```bash
+VITE_API_URL=http://localhost:3000/api
+VITE_SUPABASE_URL=<your-supabase-url>
+VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
+# Optional: bypass auth for local demo/testing
+VITE_DEMO_MODE=true
+```
+
 ### 3. Run the App
 ```bash
 # Run everything (API + Frontend)
