@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: mcc-api
+    env: node
+    plan: free
+    buildCommand: npm install --workspaces --include-workspace-root
+    startCommand: npm run -w @mcc/api dev
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: CLIENT_URL
+        value: https://mcc-web.onrender.com
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+  - type: web
+    name: mcc-web
+    env: static
+    plan: free
+    buildCommand: npm run -w web build
+    staticPublishPath: apps/web/dist
+    envVars:
+      - key: VITE_DEMO_MODE
+        value: "true"
+      - key: VITE_API_URL
+        value: https://mcc-api.onrender.com/api
