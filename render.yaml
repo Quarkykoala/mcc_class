@@ -2,7 +2,6 @@ services:
   - type: web
     name: mcc-api
     env: node
-    plan: free
     buildCommand: npm install --workspaces --include-workspace-root
     startCommand: npm run -w @mcc/api dev
     envVars:
@@ -19,7 +18,6 @@ services:
   - type: web
     name: mcc-web
     env: static
-    plan: free
     buildCommand: npm run -w web build
     staticPublishPath: apps/web/dist
     envVars:
