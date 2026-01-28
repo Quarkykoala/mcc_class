@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Network, FileText, QrCode, ShieldCheck, ArrowRight, Check } from "lucide-react";
+import { Network, QrCode, ShieldCheck, ArrowRight, Check, User, Zap, Terminal } from "lucide-react";
 
 export function OnboardingTour() {
     const [open, setOpen] = useState(false);
@@ -22,28 +22,40 @@ export function OnboardingTour() {
 
     const steps = [
         {
-            title: "Welcome to MCC Letter Issuance",
-            description: "This demo allows you to explore the secure letter issuance platform used by the BCBA.",
+            title: "Welcome to MCC Demo",
+            description: "Experience the secure Blockchain-Verified Issuance Platform.",
             icon: <ShieldCheck className="w-12 h-12 text-blue-500" />,
-            content: "You will experience the full lifecycle of a document: from trusted creation to secure verification. Everything runs in a safe Demo Environment."
+            content: "We've added 'God Mode' tools to let you see the entire lifecycle in minutes. From drafting to printing secure QR-coded documents."
         },
         {
-            title: "1. Create & Review Drafts",
-            description: "Start by selecting a department and writing a draft.",
-            icon: <FileText className="w-12 h-12 text-zinc-100" />,
-            content: "The system ensures that whatever you write is securely stored. You can always click the Eye icon on any letter to review its full content exactly as it was saved."
+            title: "1. Role Switcher ('God Mode')",
+            description: "Switch perspectives instantly in the Header.",
+            icon: <User className="w-12 h-12 text-purple-400" />,
+            content: "Toggle between 'Requester' (Draft), 'Approver' (Review), and 'Printer' (Issue) without logging out. See how the UI adapts to each permission level."
         },
         {
-            title: "2. Visual Status Tracking",
-            description: "Watch the journey of your document.",
+            title: "2. Scenario Simulator",
+            description: "Use the floating Debug Menu (bottom right).",
+            icon: <Zap className="w-12 h-12 text-yellow-400" />,
+            content: "Need data? Click 'Generate 5 Drafts' to instantly populate the dashboard. You can also 'Approve All' to fast-forward the workflow."
+        },
+        {
+            title: "3. Smart Features",
+            description: "Custom Tags & Visual Tracking.",
             icon: <Network className="w-12 h-12 text-blue-400" />,
-            content: "Click the Network button on any letter to open the visual Node Graph. This tracks the letter through Drafting, Committee Approval, and Final Issuance in an intuitive, n8n-style view."
+            content: "Add custom tags on the fly during drafting. Track the document's journey with the Node Graph (Network icon) to see the exact state trail."
         },
         {
-            title: "3. Verify with QR Codes",
-            description: "The ultimate proof of authenticity.",
+            title: "4. Live Verification",
+            description: "Real PDFs and Live QR Codes.",
             icon: <QrCode className="w-12 h-12 text-green-400" />,
-            content: "Once a letter is Issued, click the QR Code button. This generates a live verification code that links to the immutable record on the blockchain/database, ready for printing."
+            content: "Issue a letter to generate a Real PDF. Scan the QR code with your phone to verify its authenticity against the live demo database."
+        },
+        {
+            title: "5. Live Security Stream",
+            description: "Real-time audit log streaming.",
+            icon: <Terminal className="w-12 h-12 text-zinc-500" />,
+            content: "Watch the 'Matrix' style log at the footer. Every action you take is cryptographically logged and streamed in real-time."
         }
     ];
 

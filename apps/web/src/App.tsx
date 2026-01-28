@@ -16,7 +16,7 @@ import { DemoRoleSelector, type DemoRole } from "./components/DemoRoleSelector"
 import { DemoDebugMenu } from "./components/DemoDebugMenu"
 import { LogStream, logEvent } from "./components/LogStream"
 import QRCode from "react-qr-code"
-import { Loader2, Lock, ShieldCheck, Mail, FileCheck, LogOut, Eye, EyeOff, Network, QrCode } from "lucide-react"
+import { Loader2, Lock, ShieldCheck, Mail, FileCheck, LogOut, Eye, EyeOff, Network, QrCode, HelpCircle } from "lucide-react"
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
@@ -818,6 +818,12 @@ function App() {
               <div className="text-xs text-muted-foreground mr-2">
                 {session.user.email}
               </div>
+              <Button variant="ghost" size="icon" title="Restart Tour" onClick={() => {
+                  localStorage.removeItem('mcc-demo-onboarding-seen');
+                  window.location.reload();
+              }}>
+                <HelpCircle className="h-5 w-5" />
+              </Button>
               <Button variant="ghost" size="icon" onClick={handleSignOut}>
                 <LogOut className="h-5 w-5" />
               </Button>

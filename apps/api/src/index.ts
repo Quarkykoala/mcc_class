@@ -926,7 +926,7 @@ app.get('/api/reprints/requests', async (req: Request, res: Response) => {
         .order('created_at', { ascending: false });
 
     if (error) {
-        if (process.env.DEMO_MODE === 'true') {
+        if (String(process.env.DEMO_MODE).toLowerCase() === 'true') {
             // Demo environments may not have the print_requests table/RLS configured.
             return res.json([]);
         }
