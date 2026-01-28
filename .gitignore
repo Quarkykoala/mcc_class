@@ -1,3 +1,7 @@
 node_modules/
 .env
 apps/web/dist/
+*.log
+apps/api/error_*.json
+apps/web/playwright-report/
+apps/web/test-results/
