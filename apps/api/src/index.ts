@@ -925,7 +925,13 @@ app.get('/api/reprints/requests', async (req: Request, res: Response) => {
         .eq('status', 'PENDING')
         .order('created_at', { ascending: false });
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+        if (process.env.DEMO_MODE === 'true') {
+            // Demo environments may not have the print_requests table/RLS configured.
+            return res.json([]);
+        }
+        return res.status(500).json({ error: error.message });
+    }
     res.json(data);
 });
 
