@@ -70,11 +70,52 @@ cp apps/api/.env.example apps/api/.env
 ### 3. Run the App
 ```bash
 # Run everything (API + Frontend)
-npm run dev -w @mcc/api & npm run dev -w web
+npm run dev
 ```
 
 -   **Web App**: `http://localhost:5173`
 -   **API**: `http://localhost:3000`
+
+---
+
+## 🌍 Deploy on Render (Demo-Friendly)
+
+Best setup is **two services**: one API (Web Service) + one Web app (Static Site).
+
+### API (Web Service)
+**Build Command**
+```bash
+npm install --workspaces --include-workspace-root
+```
+
+**Start Command**
+```bash
+npm run -w @mcc/api dev
+```
+
+**Environment Variables**
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (recommended for demo)
+- `PORT` (Render injects)
+- `CLIENT_URL` = your Web app URL on Render
+- `DEMO_MODE=true`
+
+### Web (Static Site)
+**Build Command**
+```bash
+npm run -w web build
+```
+
+**Publish Directory**
+```
+apps/web/dist
+```
+
+**Environment Variables**
+- `VITE_API_URL` = your API URL on Render + `/api`
+- `VITE_DEMO_MODE=true`
+
+Once deployed, users can land on the site and explore immediately in demo mode.
 
 ---
 

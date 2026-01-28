@@ -94,9 +94,13 @@ app.get('/api/verify/:token', async (req: Request, res: Response) => {
                 status,
                 departments (name),
                 approvals (approver_id, created_at),
-                committee_approvals (approver_id, committee_id, created_at)
+                committee_approvals (approver_id, committee_id, created_at),
+                letter_number,
+                rejected_at,
+                rejected_by,
+                rejection_reason
             ),
-            issuances (id)
+            issuances (id, issued_at, issued_by)
         `);
 
     if (isUuid) {
@@ -159,6 +163,25 @@ app.use(authMiddleware(supabaseUrl, supabaseKey));
 
 // --- Letters (Read Public/Mixed, Write Protected) ---
 
+const getUserDepartmentIds = async (req: Request) => {
+    if (req.user?.roles.includes('ADMIN')) return null;
+    if (!req.user?.id) return [];
+    const { data: userDepts, error: deptError } = await req.supabase
+        .from('user_departments')
+        .select('department_id')
+        .eq('user_id', req.user.id);
+    if (deptError) throw new Error(deptError.message);
+    return (userDepts ?? []).map((d: any) => d.department_id).filter(Boolean);
+};
+
+const canAccessLetter = async (req: Request, letter: { department_id?: string; created_by?: string }) => {
+    if (req.user?.roles.includes('ADMIN')) return true;
+    if (!req.user?.id) return false;
+    if (letter.created_by && letter.created_by === req.user.id) return true;
+    const deptIds = await getUserDepartmentIds(req);
+    return Array.isArray(deptIds) && deptIds.includes(letter.department_id);
+};
+
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
     const page = parseInt(req.query.page as string) || 1;
@@ -166,9 +189,11 @@ app.get('/api/letters', async (req: Request, res: Response) => {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
+    const isAdmin = req.user?.roles.includes('ADMIN');
+
     // Base Query
     let query = req.supabase.from('letters').select(`
-        id, context, status, created_at,
+        id, context, status, created_at, letter_number, rejection_reason, content,
         departments (name),
         letter_tags (
             tags (name)
@@ -177,6 +202,19 @@ app.get('/api/letters', async (req: Request, res: Response) => {
 
     if (context) {
         query = query.eq('context', String(context));
+    }
+
+    if (!isAdmin && req.user?.id) {
+        try {
+            const deptIds = await getUserDepartmentIds(req);
+            if (deptIds && deptIds.length > 0) {
+                query = query.or(`created_by.eq.${req.user.id},department_id.in.(${deptIds.join(',')})`);
+            } else {
+                query = query.eq('created_by', req.user.id);
+            }
+        } catch (err: any) {
+            return res.status(500).json({ error: err.message });
+        }
     }
 
     // Pagination
@@ -328,6 +366,7 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
     // BLOCK COMMITTEE APPROVAL
@@ -379,6 +418,7 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
 
     // Check if letter is APPROVED or ISSUED (idempotency handled in RPC but check here too for clarity)
     if (letter.status !== 'APPROVED' && letter.status !== 'ISSUED') {
@@ -451,7 +491,8 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
             content: letter.content,
             contentHash,
             verificationUrl: finalVerifyUrl,
-            issuedAt: new Date()
+            issuedAt: new Date(),
+            letterNumber: rpcResult.letter_number
         });
 
         // Update pdf_status to READY
@@ -489,6 +530,15 @@ app.post('/api/letters/:id/revoke', async (req: Request, res: Response) => {
     const { id } = req.params;
     const source_ip = req.ip || '0.0.0.0';
 
+    const { data: letter, error: fetchError } = await req.supabase
+        .from('letters')
+        .select('department_id, created_by')
+        .eq('id', id)
+        .single();
+
+    if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+
     await req.supabase.from('letters').update({ status: 'REVOKED' }).eq('id', id);
 
     await req.supabase.from('audit_logs').insert({
@@ -507,6 +557,17 @@ app.post('/api/acknowledgements', async (req: Request, res: Response) => {
 
     const { letter_id, job_reference, file_url } = req.body;
     const source_ip = req.ip || '0.0.0.0';
+
+    if (!letter_id) return res.status(400).json({ error: 'letter_id is required.' });
+
+    const { data: letter, error: letterError } = await req.supabase
+        .from('letters')
+        .select('department_id, created_by')
+        .eq('id', letter_id)
+        .single();
+
+    if (letterError || !letter) return res.status(404).json({ error: 'Letter not found.' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
 
     const { error } = await req.supabase.from('acknowledgements').insert({
         letter_id,
@@ -534,6 +595,20 @@ app.get('/api/email-links', async (req: Request, res: Response) => {
     const { letter_id, job_reference } = req.query;
     let query = req.supabase.from('email_links').select('*').order('created_at', { ascending: false });
 
+    const isAdmin = req.user?.roles.includes('ADMIN');
+    if (!isAdmin) {
+        if (!letter_id) {
+            return res.status(400).json({ error: 'letter_id is required for non-admin users.' });
+        }
+        const { data: letter, error: letterError } = await req.supabase
+            .from('letters')
+            .select('department_id, created_by')
+            .eq('id', String(letter_id))
+            .single();
+        if (letterError || !letter) return res.status(404).json({ error: 'Letter not found.' });
+        if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    }
+
     if (letter_id) {
         query = query.eq('letter_id', String(letter_id));
     }
@@ -555,6 +630,18 @@ app.post('/api/email-links', async (req: Request, res: Response) => {
 
     if (!letter_id && !job_reference) {
         return res.status(400).json({ error: 'letter_id or job_reference is required.' });
+    }
+
+    const isAdmin = req.user?.roles.includes('ADMIN');
+    if (!isAdmin) {
+        if (!letter_id) return res.status(400).json({ error: 'letter_id is required for non-admin users.' });
+        const { data: letter, error: letterError } = await req.supabase
+            .from('letters')
+            .select('department_id, created_by')
+            .eq('id', letter_id)
+            .single();
+        if (letterError || !letter) return res.status(404).json({ error: 'Letter not found.' });
+        if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
     }
 
     const { data, error } = await req.supabase
@@ -623,6 +710,7 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
     if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
     const committee_id = letter.committee_id;
@@ -678,6 +766,240 @@ app.post('/api/letters/:id/committee-approve', async (req: Request, res: Respons
 });
 
 
+app.post('/api/letters/:id/reject', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!req.user?.roles.includes('APPROVER') && !req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'User does not have permission to reject letters.' });
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body;
+    const source_ip = req.ip || '0.0.0.0';
+
+    if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
+
+    const { data: letter, error: fetchError } = await req.supabase
+        .from('letters')
+        .select('status, department_id, created_by')
+        .eq('id', id)
+        .single();
+
+    if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    if (letter.status !== 'DRAFT' && letter.status !== 'APPROVED') {
+        return res.status(400).json({ error: 'Only DRAFT or APPROVED letters can be rejected.' });
+    }
+
+    const { error: updateError } = await req.supabase
+        .from('letters')
+        .update({
+            status: 'REJECTED',
+            rejected_at: new Date().toISOString(),
+            rejected_by: userId,
+            rejection_reason: reason
+        })
+        .eq('id', id);
+
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'REJECT',
+        entity_type: 'LETTER',
+        entity_id: id,
+        metadata: { rejected_by: userId, reason, source_ip }
+    });
+
+    res.json({ message: 'Letter rejected.' });
+});
+
+app.post('/api/letters/:id/print', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!req.user?.roles.includes('ISSUER') && !req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'User does not have permission to print letters.' });
+    }
+
+    const { id } = req.params;
+    const { printer_id } = req.body;
+    const source_ip = req.ip || '0.0.0.0';
+
+    const { data: issuance, error: fetchError } = await req.supabase
+        .from('issuances')
+        .select('id, print_count, max_prints, letter_versions!inner(letter_id)')
+        .eq('letter_versions.letter_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (fetchError || !issuance) return res.status(404).json({ error: 'No issuance found for this letter.' });
+
+    const { data: letter, error: letterError } = await req.supabase
+        .from('letters')
+        .select('department_id, created_by')
+        .eq('id', id)
+        .single();
+
+    if (letterError || !letter) return res.status(404).json({ error: 'Letter not found.' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+
+    if (issuance.print_count >= issuance.max_prints) {
+        return res.status(403).json({ error: 'Print limit reached. Request a reprint.' });
+    }
+
+    const { error: updateError } = await req.supabase
+        .from('issuances')
+        .update({ print_count: issuance.print_count + 1 })
+        .eq('id', issuance.id);
+
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    await req.supabase.from('print_audits').insert({
+        issuance_id: issuance.id,
+        printer_id: printer_id || 'DEFAULT',
+        status: 'SUCCESS',
+        printed_by: userId,
+        source_ip
+    });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'PRINT',
+        entity_type: 'ISSUANCE',
+        entity_id: issuance.id,
+        metadata: { printed_by: userId, printer_id: printer_id || 'DEFAULT' },
+        source_ip
+    });
+
+    res.json({ message: 'Print recorded successfully.', print_count: issuance.print_count + 1 });
+});
+
+app.post('/api/letters/:id/reprint-request', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const { data: issuance, error: fetchError } = await req.supabase
+        .from('issuances')
+        .select('id, letter_versions!inner(letter_id)')
+        .eq('letter_versions.letter_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (fetchError || !issuance) return res.status(404).json({ error: 'No issuance found.' });
+
+    const { error: insertError } = await req.supabase.from('print_requests').insert({
+        issuance_id: issuance.id,
+        requester_id: userId,
+        reason,
+        status: 'PENDING'
+    });
+
+    if (insertError) return res.status(500).json({ error: insertError.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'REPRINT_REQUEST',
+        entity_type: 'ISSUANCE',
+        entity_id: issuance.id,
+        metadata: { requester_id: userId, reason }
+    });
+
+    res.json({ message: 'Reprint request submitted.' });
+});
+
+app.get('/api/reprints/requests', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!req.user?.roles.includes('ADMIN') && !req.user?.roles.includes('APPROVER')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const { data, error } = await req.supabase
+        .from('print_requests')
+        .select('*, issuances(letter_versions(letters(context, departments(name))))')
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
+app.post('/api/reprints/:id/approve', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!req.user?.roles.includes('ADMIN') && !req.user?.roles.includes('APPROVER')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const { id } = req.params;
+
+    const { data: request, error: fetchError } = await req.supabase
+        .from('print_requests')
+        .select('*, issuances(*)')
+        .eq('id', id)
+        .single();
+
+    if (fetchError || !request) return res.status(404).json({ error: 'Request not found' });
+    if (request.status !== 'PENDING') return res.status(400).json({ error: 'Request already processed' });
+
+    const { error: updateRequestError } = await req.supabase
+        .from('print_requests')
+        .update({ status: 'APPROVED', reviewed_by: userId, reviewed_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (updateRequestError) return res.status(500).json({ error: updateRequestError.message });
+
+    const { error: updateIssuanceError } = await req.supabase
+        .from('issuances')
+        .update({ max_prints: request.issuances.max_prints + 1 })
+        .eq('id', request.issuance_id);
+
+    if (updateIssuanceError) return res.status(500).json({ error: updateIssuanceError.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'REPRINT_APPROVE',
+        entity_type: 'ISSUANCE',
+        entity_id: request.issuance_id,
+        metadata: { approved_by: userId, request_id: id }
+    });
+
+    res.json({ message: 'Reprint approved.' });
+});
+
+// Create Tag
+app.post('/api/tags', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { name, context } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    // Check existing
+    const { data: existing } = await req.supabase
+        .from('tags')
+        .select('*')
+        .eq('name', name)
+        .eq('context', context)
+        .single();
+
+    if (existing) return res.json(existing);
+
+    const { data, error } = await req.supabase
+        .from('tags')
+        .insert({ name, context })
+        .select()
+        .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
 // Health Check
 app.get('/health', (req: Request, res: Response) => {
     res.json({
@@ -694,3 +1016,5 @@ if (require.main === module) {
 }
 
 export { app };
+
+// Force restart

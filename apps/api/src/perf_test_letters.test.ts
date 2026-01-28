@@ -4,6 +4,7 @@ import request from 'supertest';
 // Set environment variables BEFORE importing anything else
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'example-key';
+process.env.DEMO_MODE = 'false';
 
 // Mock Supabase Auth
 const { mockFrom, mockSelect, mockOrder, mockRange, mockEq, mockAuthGetUser } = vi.hoisted(() => {

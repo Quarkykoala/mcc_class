@@ -6,6 +6,7 @@
         "apps/*"
     ],
     "scripts": {
+        "dev": "concurrently \"npm run dev -w @mcc/api\" \"npm run dev -w web\"",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [],
@@ -14,6 +15,7 @@
     "description": "",
     "devDependencies": {
         "@types/supertest": "^6.0.3",
+        "concurrently": "^9.2.1",
         "supertest": "^7.2.2"
     }
 }
