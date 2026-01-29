@@ -18,7 +18,9 @@ import { LogStream, logEvent } from "./components/LogStream"
 import QRCode from "react-qr-code"
 import { Loader2, Lock, ShieldCheck, Mail, FileCheck, LogOut, Eye, EyeOff, Network, QrCode, HelpCircle } from "lucide-react"
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:3000/api');
 const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 const isVerificationRoute = typeof window !== 'undefined' && window.location.pathname.includes('/verify/');
 
