@@ -39,7 +39,17 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.set('trust proxy', true);
-app.use(cors());
+
+// Permissive CORS for Dev/Ngrok
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-verify-key', 'ngrok-skip-browser-warning']
+}));
+
+// Explicitly handle pre-flight for all routes just in case
+app.options('*', cors());
+
 app.use(express.json());
 
 // Public Route
