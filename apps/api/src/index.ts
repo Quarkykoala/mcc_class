@@ -192,6 +192,33 @@ const canAccessLetter = async (req: Request, letter: { department_id?: string; c
     return Array.isArray(deptIds) && deptIds.includes(letter.department_id);
 };
 
+const normalizeUuidList = (values: unknown): string[] => {
+    if (!Array.isArray(values)) return [];
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && uuidRegex.test(value))));
+};
+
+const enrichLetter = (letter: any, currentUserId?: string, isAdmin = false) => {
+    const assignments = Array.isArray(letter.letter_approver_assignments) ? letter.letter_approver_assignments : [];
+    const approvedCount = assignments.filter((item: any) => item.decision === 'APPROVED').length;
+    const rejectedCount = assignments.filter((item: any) => item.decision === 'REJECTED').length;
+    const pendingCount = assignments.filter((item: any) => item.decision === 'PENDING').length;
+    const canApprove = letter.status === 'SUBMITTED' && (
+        isAdmin || assignments.some((item: any) => item.approver_id === currentUserId && item.decision === 'PENDING')
+    );
+
+    return {
+        ...letter,
+        approval_summary: {
+            total: assignments.length,
+            approved: approvedCount,
+            rejected: rejectedCount,
+            pending: pendingCount
+        },
+        canApprove
+    };
+};
+
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
     const page = parseInt(req.query.page as string) || 1;
@@ -203,11 +230,13 @@ app.get('/api/letters', async (req: Request, res: Response) => {
 
     // Base Query
     let query = req.supabase.from('letters').select(`
-        id, context, status, created_at, letter_number, rejection_reason, content,
+        id, context, status, created_at, updated_at, letter_number, rejection_reason, content, approval_mode,
         departments (name),
         letter_tags (
+            tag_id,
             tags (name)
-        )
+        ),
+        letter_approver_assignments (id, approver_id, decision, decided_at, comment)
     `, { count: 'exact' });
 
     if (context) {
@@ -233,8 +262,10 @@ app.get('/api/letters', async (req: Request, res: Response) => {
     const { data, error, count } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
+    const letters = (data ?? []).map((item: any) => enrichLetter(item, req.user?.id, !!isAdmin));
+
     res.json({
-        data,
+        data: letters,
         meta: {
             total: count,
             page,
@@ -356,11 +387,125 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     }
 });
 
+app.post('/api/letters/:id/routing', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id } = req.params;
+    const source_ip = req.ip || '0.0.0.0';
+    const tagIds = normalizeTagIds(req.body.tag_ids);
+    const ccApproverIds = normalizeUuidList(req.body.cc_approver_ids);
+    const approvalMode = req.body.approval_mode === 'ANY' ? 'ANY' : 'ALL';
+
+    const { data: letter, error: letterError } = await req.supabase
+        .from('letters')
+        .select('id, status, committee_id, department_id, created_by')
+        .eq('id', id)
+        .single();
+
+    if (letterError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Routing is allowed only for DRAFT letters.' });
+    if (letter.committee_id) return res.status(400).json({ error: 'Committee letters use the committee workflow.' });
+
+    const { data: defaults, error: defaultsError } = await req.supabase
+        .from('tag_default_approvers')
+        .select('approver_id')
+        .in('tag_id', tagIds.length > 0 ? tagIds : ['00000000-0000-0000-0000-000000000000']);
+    if (defaultsError) return res.status(500).json({ error: defaultsError.message });
+
+    const autoApprovers = normalizeUuidList((defaults ?? []).map((item: any) => item.approver_id));
+    const finalApprovers = normalizeUuidList([...autoApprovers, ...ccApproverIds]);
+
+    await req.supabase.from('letter_tags').delete().eq('letter_id', id);
+    if (tagIds.length > 0) {
+        await req.supabase.from('letter_tags').insert(tagIds.map((tag_id) => ({ letter_id: id, tag_id })));
+    }
+
+    await req.supabase.from('letter_approver_assignments').delete().eq('letter_id', id);
+    if (finalApprovers.length > 0) {
+        await req.supabase.from('letter_approver_assignments').insert(finalApprovers.map((approver_id) => ({
+            letter_id: id,
+            approver_id,
+            decision: 'PENDING'
+        })));
+    }
+
+    const { error: updateError } = await req.supabase
+        .from('letters')
+        .update({ approval_mode: approvalMode, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'ROUTE_APPROVAL',
+        entity_type: 'LETTER',
+        entity_id: id,
+        metadata: {
+            tag_ids: tagIds,
+            auto_approver_count: autoApprovers.length,
+            manual_approver_count: ccApproverIds.length,
+            total_approver_count: finalApprovers.length,
+            approval_mode: approvalMode,
+            source_ip
+        }
+    });
+
+    res.json({
+        message: 'Approval routing updated.',
+        assignments_count: finalApprovers.length,
+        approval_mode: approvalMode
+    });
+});
+
+app.post('/api/letters/:id/submit', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id } = req.params;
+    const source_ip = req.ip || '0.0.0.0';
+
+    const { data: letter, error: letterError } = await req.supabase
+        .from('letters')
+        .select('id, status, committee_id, department_id, created_by')
+        .eq('id', id)
+        .single();
+
+    if (letterError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Only DRAFT letters can be submitted.' });
+
+    if (!letter.committee_id) {
+        const { data: assignments, error: assignmentError } = await req.supabase
+            .from('letter_approver_assignments')
+            .select('id')
+            .eq('letter_id', id);
+        if (assignmentError) return res.status(500).json({ error: assignmentError.message });
+        if (!assignments || assignments.length < 1) {
+            return res.status(400).json({ error: 'At least one approver assignment is required before submission.' });
+        }
+    }
+
+    const { error: updateError } = await req.supabase
+        .from('letters')
+        .update({ status: 'SUBMITTED', updated_at: new Date().toISOString() })
+        .eq('id', id);
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'SUBMIT_FOR_APPROVAL',
+        entity_type: 'LETTER',
+        entity_id: id,
+        metadata: { submitted_by: userId, source_ip }
+    });
+
+    res.json({ message: 'Letter submitted for approval.' });
+});
+
 app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    // RBAC Check
     if (!req.user?.roles.includes('APPROVER') && !req.user?.roles.includes('ADMIN')) {
         return res.status(403).json({ error: 'User does not have permission to approve letters.' });
     }
@@ -368,6 +513,7 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { comment } = req.body;
     const source_ip = req.ip || '0.0.0.0';
+    const isAdmin = !!req.user?.roles.includes('ADMIN');
 
     const { data: letter, error: fetchError } = await req.supabase
         .from('letters')
@@ -377,35 +523,55 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
-    if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Letter is not in DRAFT status' });
 
-    // BLOCK COMMITTEE APPROVAL
     if (letter.committee_id) {
         return res.status(403).json({ error: 'Letters assigned to a committee must be approved via the Committee Approval endpoint.' });
     }
+    if (letter.status !== 'SUBMITTED') return res.status(400).json({ error: 'Letter must be SUBMITTED before approval.' });
 
-    const { error: updateError } = await req.supabase
-        .from('letters')
-        .update({ status: 'APPROVED' })
-        .eq('id', id);
+    if (!isAdmin) {
+        const { data: assignment, error: assignmentError } = await req.supabase
+            .from('letter_approver_assignments')
+            .select('id, decision')
+            .eq('letter_id', id)
+            .eq('approver_id', userId)
+            .single();
+        if (assignmentError || !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+        if (assignment.decision === 'APPROVED') return res.status(400).json({ error: 'Approval already recorded.' });
+    }
 
-    if (updateError) return res.status(500).json({ error: updateError.message });
+    const { error: assignmentUpdateError } = await req.supabase
+        .from('letter_approver_assignments')
+        .update({ decision: 'APPROVED', decided_at: new Date().toISOString(), comment: comment ?? null, source_ip, updated_at: new Date().toISOString() })
+        .eq('letter_id', id)
+        .eq('approver_id', userId);
+    if (!isAdmin && assignmentUpdateError) return res.status(500).json({ error: assignmentUpdateError.message });
 
-    await req.supabase.from('approvals').insert({
-        letter_id: id,
-        approver_id: userId, // Use Auth User
-        comment,
-        source_ip
-    });
+    await req.supabase.from('approvals').insert({ letter_id: id, approver_id: userId, comment, source_ip });
+
+    const { data: assignments, error: assignmentsError } = await req.supabase
+        .from('letter_approver_assignments')
+        .select('decision')
+        .eq('letter_id', id);
+    if (assignmentsError) return res.status(500).json({ error: assignmentsError.message });
+
+    const items = assignments ?? [];
+    const approved = items.filter((item: any) => item.decision === 'APPROVED').length;
+    const total = items.length;
+    const quorumReached = total > 0 && approved === total;
+
+    if (quorumReached) {
+        await req.supabase.from('letters').update({ status: 'APPROVED', updated_at: new Date().toISOString() }).eq('id', id);
+    }
 
     await req.supabase.from('audit_logs').insert({
-        action: 'APPROVE',
+        action: quorumReached ? 'APPROVE_QUORUM_SATISFIED' : 'APPROVE_PARTIAL',
         entity_type: 'LETTER',
         entity_id: id,
-        metadata: { approver_id: userId, source_ip }
+        metadata: { approver_id: userId, approved_count: approved, total_assignments: total, source_ip }
     });
 
-    res.json({ message: 'Letter approved successfully' });
+    res.json({ message: quorumReached ? 'Letter approved successfully.' : 'Approval recorded; waiting for additional approvers.', approved_count: approved, total_assignments: total, status: quorumReached ? 'APPROVED' : 'SUBMITTED' });
 });
 
 app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
@@ -787,19 +953,38 @@ app.post('/api/letters/:id/reject', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { reason } = req.body;
     const source_ip = req.ip || '0.0.0.0';
+    const isAdmin = !!req.user?.roles.includes('ADMIN');
 
     if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
 
     const { data: letter, error: fetchError } = await req.supabase
         .from('letters')
-        .select('status, department_id, created_by')
+        .select('status, committee_id, department_id, created_by')
         .eq('id', id)
         .single();
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
-    if (letter.status !== 'DRAFT' && letter.status !== 'APPROVED') {
-        return res.status(400).json({ error: 'Only DRAFT or APPROVED letters can be rejected.' });
+
+    if (!letter.committee_id) {
+        if (letter.status !== 'SUBMITTED') {
+            return res.status(400).json({ error: 'Only SUBMITTED non-committee letters can be rejected.' });
+        }
+        if (!isAdmin) {
+            const { data: assignment, error: assignmentError } = await req.supabase
+                .from('letter_approver_assignments')
+                .select('id')
+                .eq('letter_id', id)
+                .eq('approver_id', userId)
+                .single();
+            if (assignmentError || !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+        }
+
+        await req.supabase
+            .from('letter_approver_assignments')
+            .update({ decision: 'REJECTED', decided_at: new Date().toISOString(), comment: reason, source_ip, updated_at: new Date().toISOString() })
+            .eq('letter_id', id)
+            .eq('approver_id', userId);
     }
 
     const { error: updateError } = await req.supabase
@@ -808,7 +993,8 @@ app.post('/api/letters/:id/reject', async (req: Request, res: Response) => {
             status: 'REJECTED',
             rejected_at: new Date().toISOString(),
             rejected_by: userId,
-            rejection_reason: reason
+            rejection_reason: reason,
+            updated_at: new Date().toISOString()
         })
         .eq('id', id);
 
@@ -986,6 +1172,37 @@ app.post('/api/reprints/:id/approve', async (req: Request, res: Response) => {
     });
 
     res.json({ message: 'Reprint approved.' });
+});
+
+
+app.post('/api/tag-default-approvers', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!req.user?.roles.includes('ADMIN')) {
+        return res.status(403).json({ error: 'Admin role required.' });
+    }
+
+    const tagId = typeof req.body.tag_id === 'string' ? req.body.tag_id : '';
+    const approverIds = normalizeUuidList(req.body.approver_ids);
+
+    if (!tagId) return res.status(400).json({ error: 'tag_id is required.' });
+
+    await req.supabase.from('tag_default_approvers').delete().eq('tag_id', tagId);
+    if (approverIds.length > 0) {
+        await req.supabase.from('tag_default_approvers').insert(
+            approverIds.map((approver_id) => ({ tag_id: tagId, approver_id }))
+        );
+    }
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'TAG_DEFAULT_APPROVER_SET',
+        entity_type: 'TAG',
+        entity_id: tagId,
+        metadata: { approver_count: approverIds.length, updated_by: userId }
+    });
+
+    res.json({ message: 'Default approvers updated.', count: approverIds.length });
 });
 
 // Create Tag
