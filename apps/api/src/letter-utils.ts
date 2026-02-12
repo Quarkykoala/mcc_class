@@ -116,7 +116,18 @@ export const buildVerificationResponse = (record: VerificationRecord) => {
         : null,
       committee_id: useCommittee ? selectedApproval?.committee_id ?? null : null,
       issuance_exists: issuances.length > 0,
-      version_number: record.version_number
+      version_number: record.version_number,
+      approval_count: approvals.length,
+      approvals: approvals.map((approval) => ({
+        approver_id: approval.approver_id ?? null,
+        approved_at: approval.approved_at ?? null
+      })),
+      committee_approval_count: committeeApprovals.length,
+      committee_approvals: committeeApprovals.map((approval) => ({
+        approver_id: approval.approver_id ?? null,
+        committee_id: approval.committee_id ?? null,
+        approved_at: approval.approved_at ?? null
+      }))
     }
   };
 };
