@@ -12,7 +12,9 @@ export async function verifyApproverRole(
     .eq('user_id', userId);
 
   if (error || !userRoles) {
-    // Log error in a real app
+    if (error) {
+      console.error('Error fetching user roles:', error);
+    }
     return false;
   }
 

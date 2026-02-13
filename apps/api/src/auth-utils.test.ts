@@ -73,6 +73,23 @@ describe('verifyApproverRole', () => {
     expect(result).toBe(false);
   });
 
+  it('logs error if supabase returns error', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'DB Error' }
+      })
+    } as unknown as SupabaseClient;
+
+    const result = await verifyApproverRole(mockSupabase, 'user-123');
+    expect(result).toBe(false);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Error fetching user roles'), { message: 'DB Error' });
+    consoleSpy.mockRestore();
+  });
+
     it('returns false if userId is missing', async () => {
     const mockSupabase = {
       from: vi.fn().mockReturnThis(),
