@@ -24,9 +24,10 @@ type Props = {
   onReject: (id: string, reason: string) => Promise<void>;
   onIssue: (id: string) => Promise<void>;
   onPrint: (id: string) => Promise<void>;
+  onFetchLetter: (id: string) => Promise<any>;
 };
 
-export function LetterWorkspace({ letters, tags, auditLogs, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint }: Props) {
+export function LetterWorkspace({ letters, tags, auditLogs, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(letters[0]?.id ?? null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -39,7 +40,17 @@ export function LetterWorkspace({ letters, tags, auditLogs, onCreateOrUpdate, on
   React.useEffect(() => {
     if (!selectedLetter) return;
     setTitle(selectedLetter.title || '');
-    setContent(selectedLetter.content || '');
+    if (selectedLetter.content) {
+      setContent(selectedLetter.content);
+    } else {
+      setContent('Loading...');
+      onFetchLetter(selectedLetter.id).then((fullLetter) => {
+        setContent(fullLetter.content || '');
+      }).catch((err) => {
+        console.error('Failed to fetch letter content', err);
+        setContent('Error loading content.');
+      });
+    }
     setSelectedTags((selectedLetter.letter_tags || []).map((item: any) => item.tag_id));
   }, [selectedLetter?.id]);
 
