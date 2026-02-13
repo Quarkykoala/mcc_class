@@ -86,6 +86,7 @@ export default function App() {
         onReject={async (id, reason) => { await authedFetch(`/letters/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }); await refresh(); }}
         onIssue={async (id) => { await authedFetch(`/letters/${id}/issue`, { method: 'POST', body: JSON.stringify({ channel: 'PRINT', printer_id: 'DEMO' }) }); await refresh(); }}
         onPrint={async (id) => { await authedFetch(`/letters/${id}/print`, { method: 'POST', body: JSON.stringify({ printer_id: 'DEMO' }) }); await refresh(); }}
+        onFetchLetter={async (id) => { const res = await authedFetch(`/letters/${id}`); return res.json(); }}
       />
     </main>
   );

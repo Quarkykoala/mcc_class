@@ -230,7 +230,7 @@ app.get('/api/letters', async (req: Request, res: Response) => {
 
     // Base Query
     let query = req.supabase.from('letters').select(`
-        id, context, status, created_at, updated_at, letter_number, rejection_reason, content, approval_mode,
+        id, context, status, created_at, updated_at, letter_number, rejection_reason, approval_mode, created_by, department_id,
         departments (name),
         letter_tags (
             tag_id,
@@ -273,6 +273,30 @@ app.get('/api/letters', async (req: Request, res: Response) => {
             hasMore: count ? to < count - 1 : false
         }
     });
+});
+
+app.get('/api/letters/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const isAdmin = req.user?.roles.includes('ADMIN');
+
+    const { data: letter, error: fetchError } = await req.supabase
+        .from('letters')
+        .select(`
+            id, context, status, created_at, updated_at, letter_number, rejection_reason, content, approval_mode, created_by, department_id,
+            departments (name),
+            letter_tags (
+                tag_id,
+                tags (name)
+            ),
+            letter_approver_assignments (id, approver_id, decision, decided_at, comment)
+        `)
+        .eq('id', id)
+        .single();
+
+    if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
+    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+
+    res.json(enrichLetter(letter, req.user?.id, !!isAdmin));
 });
 
 app.post('/api/letters', async (req: Request, res: Response) => {
