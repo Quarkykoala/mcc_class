@@ -5,3 +5,4 @@ apps/web/dist/
 apps/api/error_*.json
 apps/web/playwright-report/
 apps/web/test-results/
+apps/api/dist/

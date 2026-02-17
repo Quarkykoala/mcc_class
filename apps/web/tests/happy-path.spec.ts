@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-test('demo workspace happy path shell', async ({ page }) => {
+test('renders sign-in shell', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText('Letter Workspace')).toBeVisible();
-  await expect(page.getByText('Stage Panel')).toBeVisible();
+  await expect(page.getByPlaceholder('Email')).toBeVisible();
+  await expect(page.getByPlaceholder('Password')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 });

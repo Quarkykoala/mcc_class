@@ -1,132 +1,144 @@
-# MCC Letter Issuance System
+# Letter Commander (MCC Letter Issuance System)
 
-> **A secure platform for drafting, approving, and verifying official letters.**
+A controlled letter lifecycle system for drafting, approval, issuance, printing, verification, and acknowledgement evidence.
 
-The **MCC Letter Issuance System** helps organizations generate tamper-proof official documents. It uses a strict "Draft -> Approve -> Issue" workflow, enforced by digital signatures and role-based security.
+Current focus is `COMPANY` context (BCBA paths remain in codebase but are not the primary workflow).
 
----
+## What Is Built
 
-## ⚡ How It Works
+- Single workspace for letter drafting and stage-based operations
+- Lifecycle states: `DRAFT -> SUBMITTED -> APPROVED/REJECTED -> ISSUED -> REVOKED`
+- Manual routing with approver assignment
+- "My Pending Approvals" panel for actionable submitted letters
+- Controlled issuance with verification payload generation
+- Print audit trail (user, time, printer, source IP)
+- Tag-based metadata and department visibility controls
+- Acknowledgement capture linked to letter and optional `job_reference`
+- Demo tools for generating flow data and cleaning excess drafts
 
-```mermaid
-graph LR
-    A[Draft Letter] --> B{Approval}
-    B -- Manager --> C[Approved]
-    B -- Committee --> C
-    C --> D{Issuance}
-    D -- Official --> E[Issued Letter]
-    E --> F[Generate PDF + QR]
-    E --> G[Immutable Record]
-    F -.-> H(Public Verification)
+## Workflow Semantics
+
+- `Save Draft`: persist editable draft content
+- `Route`: assign approver(s) and routing metadata
+- `Submit`: move `DRAFT` to `SUBMITTED` for approval
+- `Approve` / `Reject`: approver decision on submitted letter
+- `Issue`: create issuance/version record for approved letter
+- `Print`: record print event for issued letter
+
+Only valid stage transitions are allowed by API checks.
+
+## Project Structure
+
+- `apps/api` - Express + TypeScript API (Supabase-backed)
+- `apps/web` - React + Vite frontend
+- `supabase/migrations` - SQL migrations
+- `scripts` - smoke and helper scripts
+
+## Prerequisites
+
+- Node.js 18+
+- npm
+- Supabase project (URL + keys)
+
+## Environment Setup
+
+### API (`apps/api/.env`)
+
+Create `apps/api/.env`:
+
+```env
+SUPABASE_URL=<your-supabase-url>
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key-or-anon-key>
+PORT=3000
+CLIENT_URL=http://localhost:5173
+DEMO_MODE=true
+# Optional: secure verify endpoint in non-demo env
+# VERIFY_ACCESS_KEY=<internal-key>
 ```
 
----
+### Web (`apps/web/.env`)
 
-## ✨ Key Features
+Create `apps/web/.env`:
 
--   **Role-Based Security**: Users Create, Managers Approve, and Admins Issue.
--   **Committee Mode**: Special letters require approval from specific committee members.
--   **Tamper-Proof**: Once issued, letters are "frozen" and cannot be changed.
--   **Public Verification**: Anyone can scan the QR code to verify validity.
--   **Audit Logs**: Every action (create, edit, approve) is recorded forever.
-
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites
--   Node.js (v18+)
--   Supabase Project
-
-### 2. Install & Setup
-```bash
-# Clone and Install
-git clone <repo-url>
-npm install
-
-# Setup Environment
-cp apps/api/.env.example apps/api/.env
-# Fill in your SUPABASE_URL and KEYS
-```
-
-#### Frontend Environment
-Create `apps/web/.env` (or copy the example):
-```bash
-cp apps/web/.env.example apps/web/.env
-
+```env
 VITE_API_URL=http://localhost:3000/api
 VITE_SUPABASE_URL=<your-supabase-url>
-VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
-# Optional: bypass auth for local demo/testing
-VITE_DEMO_MODE=true
+VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
-#### API Environment
-Create `apps/api/.env` (or copy the example):
-```bash
-cp apps/api/.env.example apps/api/.env
-```
+## Install and Run
 
-### 3. Run the App
 ```bash
-# Run everything (API + Frontend)
+npm install
 npm run dev
 ```
 
--   **Web App**: `http://localhost:5173`
--   **API**: `http://localhost:3000`
+- Web: `http://localhost:5173`
+- API: `http://localhost:3000`
 
----
+## Database Migrations
 
-## 🌍 Deploy on Render (Demo-Friendly)
+Apply migrations in `supabase/migrations` to keep schema aligned with API expectations.
 
-Best setup is **two services**: one API (Web Service) + one Web app (Static Site).
+Important recent migration:
 
-### API (Web Service)
-**Build Command**
+- `supabase/migrations/20260304_add_letters_title_and_job_reference.sql`
+  - Adds `letters.title`
+  - Adds `letters.job_reference`
+
+If your DB is partially migrated, API includes compatibility fallbacks for several legacy schema gaps, but full migration is recommended.
+
+## Quality Gates
+
+Run these before shipping:
+
 ```bash
-npm install --workspaces --include-workspace-root
+# API
+npm run typecheck -w @mcc/api
+npm run test -w @mcc/api
+npm run build -w @mcc/api
+
+# Web
+npm run lint -w web
+npm run build -w web
+npm run test:web
 ```
 
-**Start Command**
-```bash
-npm run -w @mcc/api dev
-```
+## Core API Endpoints (Current)
 
-**Environment Variables**
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` (recommended for demo)
-- `PORT` (Render injects)
-- `CLIENT_URL` = your Web app URL on Render
-- `DEMO_MODE=true`
+- Letters:
+  - `GET /api/letters`
+  - `GET /api/letters/:id`
+  - `POST /api/letters`
+- Workflow:
+  - `POST /api/letters/:id/routing`
+  - `POST /api/letters/:id/submit`
+  - `POST /api/letters/:id/approve`
+  - `POST /api/letters/:id/reject`
+  - `POST /api/letters/:id/issue`
+  - `POST /api/letters/:id/print`
+  - `POST /api/letters/:id/revoke`
+- Approvals:
+  - `GET /api/approvers`
+  - `GET /api/approvals/pending`
+- Verification:
+  - `GET /api/verify/:token` (internal access policy configurable)
+- Evidence:
+  - `POST /api/acknowledgements`
+  - `GET /api/acknowledgements`
 
-### Web (Static Site)
-**Build Command**
-```bash
-npm run -w web build
-```
+## Demo Operations
 
-**Publish Directory**
-```
-apps/web/dist
-```
+From the floating wand menu in the web app:
 
-**Environment Variables**
-- `VITE_API_URL` = your API URL on Render + `/api`
-- `VITE_DEMO_MODE=true`
+- Generate random drafts
+- Approve pending drafts
+- Issue approved letters
+- Generate full flow dataset
+- Cleanup 90% of drafts
 
-Once deployed, users can land on the site and explore immediately in demo mode.
+## Notes
 
----
-
-## 🛠️ Tech Stack
-
-| Component | Technology |
-| :--- | :--- |
-| **Frontend** | React, Tailwind, Radix UI (shadcn) |
-| **Backend** | Node.js, Express, TypeScript |
-| **Database** | Supabase (PostgreSQL + RLS) |
-| **Security** | JWT Authentication, Row Level Security |
-
----
-*Created for the MCC Project Class.*
+- COMPANY is the primary V1 workflow.
+- BCBA-related code paths exist but are not the active implementation focus.
+- Email-classifier integration is future scope.

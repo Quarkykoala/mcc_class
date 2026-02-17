@@ -219,6 +219,240 @@ const enrichLetter = (letter: any, currentUserId?: string, isAdmin = false) => {
     };
 };
 
+const LETTERS_BASE_SELECT = `
+        id, context, status, created_at, updated_at, title, job_reference, letter_number, rejection_reason, approval_mode, created_by, department_id,
+        departments (name),
+        letter_tags (
+            tag_id,
+            tags (name)
+        ),
+        letter_approver_assignments (id, approver_id, decision, decided_at, comment)
+    `;
+
+const LETTERS_BASE_SELECT_FALLBACK = `
+        id, context, status, created_at, updated_at, title, job_reference, letter_number, rejection_reason, approval_mode, created_by, department_id,
+        departments (name),
+        letter_tags (
+            tag_id,
+            tags (name)
+        )
+    `;
+
+const LETTERS_BASE_SELECT_LEGACY_FALLBACK = `
+        id, context, status, created_at, updated_at, created_by, department_id,
+        departments (name),
+        letter_tags (
+            tag_id,
+            tags (name)
+        )
+    `;
+
+const LETTER_DETAIL_SELECT = `
+            id, context, status, created_at, updated_at, title, job_reference, letter_number, rejection_reason, content, approval_mode, created_by, department_id,
+            departments (name),
+            letter_tags (
+                tag_id,
+                tags (name)
+            ),
+            letter_approver_assignments (id, approver_id, decision, decided_at, comment)
+        `;
+
+const LETTER_DETAIL_SELECT_FALLBACK = `
+            id, context, status, created_at, updated_at, title, job_reference, letter_number, rejection_reason, content, approval_mode, created_by, department_id,
+            departments (name),
+            letter_tags (
+                tag_id,
+                tags (name)
+            )
+        `;
+
+const LETTER_DETAIL_SELECT_LEGACY_FALLBACK = `
+            id, context, status, created_at, updated_at, content, created_by, department_id,
+            departments (name),
+            letter_tags (
+                tag_id,
+                tags (name)
+            )
+        `;
+
+const shouldUseLegacyFallback = (message?: string | null) =>
+    !!message && (
+        message.includes("Could not find a relationship between 'letters' and 'letter_approver_assignments'")
+        || /Could not find the ['"]?[a-z_]+['"]? column of ['"]?letters['"]? in the schema cache/i.test(message)
+        || /column letters\.[a-z_]+ does not exist/i.test(message)
+    );
+
+const isMissingLetterMetadataColumns = (message?: string | null) =>
+    !!message && (
+        /Could not find the ['"]?(title|job_reference)['"]? column of ['"]?letters['"]? in the schema cache/i.test(message)
+        || /column ["']?(title|job_reference)["']? of relation ["']?letters["']? does not exist/i.test(message)
+        || /column letters\.(title|job_reference) does not exist/i.test(message)
+    );
+
+const isMissingApproverAssignmentsSchema = (message?: string | null) =>
+    !!message && (
+        /Could not find the table ['"]public\.letter_approver_assignments['"] in the schema cache/i.test(message)
+        || /Could not find the table ['"]?letter_approver_assignments['"]? in the schema cache/i.test(message)
+        || /relation ["']?letter_approver_assignments["']? does not exist/i.test(message)
+        || message.includes("Could not find a relationship between 'letters' and 'letter_approver_assignments'")
+        || /column letter_approver_assignments\.[a-z_]+ does not exist/i.test(message)
+    );
+
+const isMissingUserRolesSchema = (message?: string | null) =>
+    !!message && (
+        /Could not find the table ['"]public\.user_roles['"] in the schema cache/i.test(message)
+        || /Could not find the table ['"]?user_roles['"]? in the schema cache/i.test(message)
+        || /relation ["']?user_roles["']? does not exist/i.test(message)
+        || /column user_roles\.[a-z_]+ does not exist/i.test(message)
+    );
+
+const isMissingVerificationTokenColumn = (message?: string | null) =>
+    !!message && (
+        /column ["']?verification_token["']? of relation ["']?letter_versions["']? does not exist/i.test(message)
+        || /column letter_versions\.verification_token does not exist/i.test(message)
+    );
+
+const isMissingTableOrColumnError = (message?: string | null) =>
+    !!message && (
+        /does not exist/i.test(message)
+        || /schema cache/i.test(message)
+    );
+
+const fetchLetterWithLegacyFallback = async (
+    req: Request,
+    id: string,
+    primarySelect: string,
+    fallbackSelect: string
+) => {
+    const primaryResult = await req.supabase
+        .from('letters')
+        .select(primarySelect)
+        .eq('id', id)
+        .single();
+
+    let letter: any = primaryResult.data;
+    let fetchError = primaryResult.error;
+
+    if (fetchError && shouldUseLegacyFallback(fetchError.message)) {
+        const fallbackResult = await req.supabase
+            .from('letters')
+            .select(fallbackSelect)
+            .eq('id', id)
+            .single();
+        letter = fallbackResult.data;
+        fetchError = fallbackResult.error;
+    }
+
+    return { letter, fetchError };
+};
+
+app.get('/api/approvers', async (req: Request, res: Response) => {
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+
+    const { data, error } = await req.supabase
+        .from('user_roles')
+        .select('user_id, role')
+        .in('role', ['APPROVER', 'ADMIN']);
+
+    if (error) {
+        if (isMissingUserRolesSchema(error.message)) {
+            return res.json([]);
+        }
+        return res.status(500).json({ error: error.message });
+    }
+
+    const grouped = new Map<string, Set<string>>();
+    for (const row of data ?? []) {
+        if (!row?.user_id || !row?.role) continue;
+        const roles = grouped.get(row.user_id) ?? new Set<string>();
+        roles.add(String(row.role));
+        grouped.set(row.user_id, roles);
+    }
+
+    let approvers = Array.from(grouped.entries())
+        .map(([id, roles]) => ({
+            id,
+            label: id,
+            roles: Array.from(roles).sort()
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+    if (search) {
+        approvers = approvers.filter((item) =>
+            item.id.toLowerCase().includes(search) || item.label.toLowerCase().includes(search)
+        );
+    }
+
+    res.json(approvers);
+});
+
+app.get('/api/approvals/pending', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const isAdmin = req.user?.roles.includes('ADMIN');
+    const context = typeof req.query.context === 'string' ? req.query.context : null;
+
+    const { data: pendingAssignments, error: assignmentError } = await req.supabase
+        .from('letter_approver_assignments')
+        .select('letter_id')
+        .eq('approver_id', userId)
+        .eq('decision', 'PENDING');
+
+    if (assignmentError) {
+        if (isMissingApproverAssignmentsSchema(assignmentError.message)) {
+            return res.json([]);
+        }
+        return res.status(500).json({ error: assignmentError.message });
+    }
+
+    const letterIds = Array.from(new Set((pendingAssignments ?? [])
+        .map((item: any) => item.letter_id)
+        .filter(Boolean)));
+
+    if (letterIds.length === 0) return res.json([]);
+
+    let primaryQuery = req.supabase
+        .from('letters')
+        .select(LETTERS_BASE_SELECT)
+        .in('id', letterIds)
+        .eq('status', 'SUBMITTED');
+    if (context) primaryQuery = primaryQuery.eq('context', context);
+    const primaryResult = await primaryQuery.order('created_at', { ascending: false });
+
+    let data: any[] | null = primaryResult.data as any[] | null;
+    let error = primaryResult.error;
+
+    if (error && shouldUseLegacyFallback(error.message)) {
+        let fallbackQuery = req.supabase
+            .from('letters')
+            .select(LETTERS_BASE_SELECT_FALLBACK)
+            .in('id', letterIds)
+            .eq('status', 'SUBMITTED');
+        if (context) fallbackQuery = fallbackQuery.eq('context', context);
+        const fallbackResult = await fallbackQuery.order('created_at', { ascending: false });
+        data = fallbackResult.data as any[] | null;
+        error = fallbackResult.error;
+
+        if (error && shouldUseLegacyFallback(error.message)) {
+            let legacyFallbackQuery = req.supabase
+                .from('letters')
+                .select(LETTERS_BASE_SELECT_LEGACY_FALLBACK)
+                .in('id', letterIds)
+                .eq('status', 'SUBMITTED');
+            if (context) legacyFallbackQuery = legacyFallbackQuery.eq('context', context);
+            const legacyFallbackResult = await legacyFallbackQuery.order('created_at', { ascending: false });
+            data = legacyFallbackResult.data as any[] | null;
+            error = legacyFallbackResult.error;
+        }
+    }
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const letters = (data ?? []).map((item: any) => enrichLetter(item, req.user?.id, !!isAdmin));
+    res.json(letters);
+});
+
 app.get('/api/letters', async (req: Request, res: Response) => {
     const { context } = req.query;
     const page = parseInt(req.query.page as string) || 1;
@@ -229,15 +463,7 @@ app.get('/api/letters', async (req: Request, res: Response) => {
     const isAdmin = req.user?.roles.includes('ADMIN');
 
     // Base Query
-    let query = req.supabase.from('letters').select(`
-        id, context, status, created_at, updated_at, letter_number, rejection_reason, approval_mode, created_by, department_id,
-        departments (name),
-        letter_tags (
-            tag_id,
-            tags (name)
-        ),
-        letter_approver_assignments (id, approver_id, decision, decided_at, comment)
-    `, { count: 'exact' });
+    let query = req.supabase.from('letters').select(LETTERS_BASE_SELECT, { count: 'exact' });
 
     if (context) {
         query = query.eq('context', String(context));
@@ -259,7 +485,64 @@ app.get('/api/letters', async (req: Request, res: Response) => {
     // Pagination
     query = query.order('created_at', { ascending: false }).range(from, to);
 
-    const { data, error, count } = await query;
+    const primaryResult = await query;
+    let data: any[] | null = primaryResult.data as any[] | null;
+    let error = primaryResult.error;
+    let count: number | null = primaryResult.count ?? null;
+    if (error && shouldUseLegacyFallback(error.message)) {
+        let fallbackQuery = req.supabase.from('letters').select(LETTERS_BASE_SELECT_FALLBACK, { count: 'exact' });
+
+        if (context) {
+            fallbackQuery = fallbackQuery.eq('context', String(context));
+        }
+
+        if (!isAdmin && req.user?.id) {
+            try {
+                const deptIds = await getUserDepartmentIds(req);
+                if (deptIds && deptIds.length > 0) {
+                    fallbackQuery = fallbackQuery.or(`created_by.eq.${req.user.id},department_id.in.(${deptIds.join(',')})`);
+                } else {
+                    fallbackQuery = fallbackQuery.eq('created_by', req.user.id);
+                }
+            } catch (err: any) {
+                return res.status(500).json({ error: err.message });
+            }
+        }
+
+        fallbackQuery = fallbackQuery.order('created_at', { ascending: false }).range(from, to);
+        const fallbackResult = await fallbackQuery;
+        data = fallbackResult.data as any[] | null;
+        error = fallbackResult.error;
+        count = fallbackResult.count ?? null;
+
+        if (error && shouldUseLegacyFallback(error.message)) {
+            let legacyFallbackQuery = req.supabase.from('letters').select(LETTERS_BASE_SELECT_LEGACY_FALLBACK, { count: 'exact' });
+
+            if (context) {
+                legacyFallbackQuery = legacyFallbackQuery.eq('context', String(context));
+            }
+
+            if (!isAdmin && req.user?.id) {
+                try {
+                    const deptIds = await getUserDepartmentIds(req);
+                    if (deptIds && deptIds.length > 0) {
+                        legacyFallbackQuery = legacyFallbackQuery.or(`created_by.eq.${req.user.id},department_id.in.(${deptIds.join(',')})`);
+                    } else {
+                        legacyFallbackQuery = legacyFallbackQuery.eq('created_by', req.user.id);
+                    }
+                } catch (err: any) {
+                    return res.status(500).json({ error: err.message });
+                }
+            }
+
+            legacyFallbackQuery = legacyFallbackQuery.order('created_at', { ascending: false }).range(from, to);
+            const legacyFallbackResult = await legacyFallbackQuery;
+            data = legacyFallbackResult.data as any[] | null;
+            error = legacyFallbackResult.error;
+            count = legacyFallbackResult.count ?? null;
+        }
+    }
+
     if (error) return res.status(500).json({ error: error.message });
 
     const letters = (data ?? []).map((item: any) => enrichLetter(item, req.user?.id, !!isAdmin));
@@ -279,19 +562,33 @@ app.get('/api/letters/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const isAdmin = req.user?.roles.includes('ADMIN');
 
-    const { data: letter, error: fetchError } = await req.supabase
+    const primaryDetailResult = await req.supabase
         .from('letters')
-        .select(`
-            id, context, status, created_at, updated_at, letter_number, rejection_reason, content, approval_mode, created_by, department_id,
-            departments (name),
-            letter_tags (
-                tag_id,
-                tags (name)
-            ),
-            letter_approver_assignments (id, approver_id, decision, decided_at, comment)
-        `)
+        .select(LETTER_DETAIL_SELECT)
         .eq('id', id)
         .single();
+    let letter: any = primaryDetailResult.data;
+    let fetchError = primaryDetailResult.error;
+
+    if (fetchError && shouldUseLegacyFallback(fetchError.message)) {
+        const fallbackResult = await req.supabase
+            .from('letters')
+            .select(LETTER_DETAIL_SELECT_FALLBACK)
+            .eq('id', id)
+            .single();
+        letter = fallbackResult.data;
+        fetchError = fallbackResult.error;
+
+        if (fetchError && shouldUseLegacyFallback(fetchError.message)) {
+            const legacyFallbackResult = await req.supabase
+                .from('letters')
+                .select(LETTER_DETAIL_SELECT_LEGACY_FALLBACK)
+                .eq('id', id)
+                .single();
+            letter = legacyFallbackResult.data;
+            fetchError = legacyFallbackResult.error;
+        }
+    }
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
@@ -303,7 +600,9 @@ app.post('/api/letters', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { id, context, tag_ids, content } = req.body;
+    const { id, context, tag_ids, content, title, job_reference } = req.body;
+    const hasTitle = Object.prototype.hasOwnProperty.call(req.body, 'title');
+    const hasJobReference = Object.prototype.hasOwnProperty.call(req.body, 'job_reference');
     let { department_id, committee_id } = req.body;
 
     // Sanitize UUIDs: Convert empty strings to null
@@ -337,19 +636,52 @@ app.post('/api/letters', async (req: Request, res: Response) => {
         if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this draft.' });
 
         // Update Content
-        const { data: updateData, error: updateError } = await req.supabase
+        const updatePayload: Record<string, any> = {
+            department_id: department_id || currentLetter.department_id,
+            content: content,
+            committee_id: committee_id, // Allow updating committee_id
+            updated_at: new Date().toISOString()
+        };
+        if (hasTitle) updatePayload.title = title;
+        if (hasJobReference) updatePayload.job_reference = job_reference;
+
+        let updateResult = await req.supabase
             .from('letters')
-            .update({
-                department_id: department_id || currentLetter.department_id,
-                content: content,
-                committee_id: committee_id, // Allow updating committee_id
-                updated_at: new Date().toISOString()
-            })
+            .update(updatePayload)
             .eq('id', id)
             .select()
             .single();
 
+        if (updateResult.error && isMissingLetterMetadataColumns(updateResult.error.message)) {
+            const { title: _title, job_reference: _jobReference, ...legacyUpdatePayload } = updatePayload;
+            updateResult = await req.supabase
+                .from('letters')
+                .update(legacyUpdatePayload)
+                .eq('id', id)
+                .select()
+                .single();
+        }
+
+        const updateData = updateResult.data;
+        const updateError = updateResult.error;
+
         if (updateError) return res.status(500).json({ error: updateError.message });
+
+        const normalizedTags = normalizeTagIds(tag_ids);
+        const { error: deleteTagsError } = await req.supabase
+            .from('letter_tags')
+            .delete()
+            .eq('letter_id', id);
+        if (deleteTagsError) return res.status(500).json({ error: deleteTagsError.message });
+
+        if (normalizedTags.length > 0) {
+            const tagInserts = normalizedTags.map((tagId) => ({
+                letter_id: id,
+                tag_id: tagId
+            }));
+            const { error: insertTagsError } = await req.supabase.from('letter_tags').insert(tagInserts);
+            if (insertTagsError) return res.status(500).json({ error: insertTagsError.message });
+        }
 
         await req.supabase.from('audit_logs').insert({
             action: 'UPDATE',
@@ -370,19 +702,35 @@ app.post('/api/letters', async (req: Request, res: Response) => {
 
     } else {
         // CREATE
-        const { data, error } = await req.supabase
+        const createPayload: Record<string, any> = {
+            context,
+            department_id,
+            content,
+            committee_id, // Allow setting committee_id
+            created_by: userId, // Use authenticated user
+            status: 'DRAFT',
+            source_ip
+        };
+        if (hasTitle) createPayload.title = title;
+        if (hasJobReference) createPayload.job_reference = job_reference;
+
+        let createResult = await req.supabase
             .from('letters')
-            .insert({
-                context,
-                department_id,
-                content,
-                committee_id, // Allow setting committee_id
-                created_by: userId, // Use authenticated user
-                status: 'DRAFT',
-                source_ip
-            })
+            .insert(createPayload)
             .select()
             .single();
+
+        if (createResult.error && isMissingLetterMetadataColumns(createResult.error.message)) {
+            const { title: _title, job_reference: _jobReference, ...legacyCreatePayload } = createPayload;
+            createResult = await req.supabase
+                .from('letters')
+                .insert(legacyCreatePayload)
+                .select()
+                .single();
+        }
+
+        const data = createResult.data;
+        const error = createResult.error;
 
         if (error) return res.status(500).json({ error: error.message });
 
@@ -421,16 +769,18 @@ app.post('/api/letters/:id/routing', async (req: Request, res: Response) => {
     const ccApproverIds = normalizeUuidList(req.body.cc_approver_ids);
     const approvalMode = req.body.approval_mode === 'ANY' ? 'ANY' : 'ALL';
 
-    const { data: letter, error: letterError } = await req.supabase
-        .from('letters')
-        .select('id, status, committee_id, department_id, created_by')
-        .eq('id', id)
-        .single();
+    const { letter, fetchError: letterError } = await fetchLetterWithLegacyFallback(
+        req,
+        id,
+        'id, status, committee_id, department_id, created_by',
+        'id, status, department_id, created_by'
+    );
 
     if (letterError || !letter) return res.status(404).json({ error: 'Letter not found' });
-    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
-    if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Routing is allowed only for DRAFT letters.' });
-    if (letter.committee_id) return res.status(400).json({ error: 'Committee letters use the committee workflow.' });
+    const letterWithDefaults = { ...letter, committee_id: letter.committee_id ?? null };
+    if (!(await canAccessLetter(req, letterWithDefaults))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    if (letterWithDefaults.status !== 'DRAFT') return res.status(400).json({ error: 'Routing is allowed only for DRAFT letters.' });
+    if (letterWithDefaults.committee_id) return res.status(400).json({ error: 'Committee letters use the committee workflow.' });
 
     const { data: defaults, error: defaultsError } = await req.supabase
         .from('tag_default_approvers')
@@ -489,24 +839,45 @@ app.post('/api/letters/:id/submit', async (req: Request, res: Response) => {
     const { id } = req.params;
     const source_ip = req.ip || '0.0.0.0';
 
-    const { data: letter, error: letterError } = await req.supabase
-        .from('letters')
-        .select('id, status, committee_id, department_id, created_by')
-        .eq('id', id)
-        .single();
+    const { letter, fetchError: letterError } = await fetchLetterWithLegacyFallback(
+        req,
+        id,
+        'id, status, committee_id, department_id, created_by',
+        'id, status, department_id, created_by'
+    );
 
     if (letterError || !letter) return res.status(404).json({ error: 'Letter not found' });
-    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
-    if (letter.status !== 'DRAFT') return res.status(400).json({ error: 'Only DRAFT letters can be submitted.' });
+    const letterWithDefaults = { ...letter, committee_id: letter.committee_id ?? null };
+    if (!(await canAccessLetter(req, letterWithDefaults))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    if (letterWithDefaults.status !== 'DRAFT') return res.status(400).json({ error: 'Only DRAFT letters can be submitted.' });
 
-    if (!letter.committee_id) {
+    if (!letterWithDefaults.committee_id) {
         const { data: assignments, error: assignmentError } = await req.supabase
             .from('letter_approver_assignments')
             .select('id')
             .eq('letter_id', id);
-        if (assignmentError) return res.status(500).json({ error: assignmentError.message });
-        if (!assignments || assignments.length < 1) {
-            return res.status(400).json({ error: 'At least one approver assignment is required before submission.' });
+        if (assignmentError && !isMissingApproverAssignmentsSchema(assignmentError.message)) {
+            return res.status(500).json({ error: assignmentError.message });
+        }
+
+        const hasAssignments = Array.isArray(assignments) && assignments.length > 0;
+        const assignmentSchemaMissing = !!assignmentError && isMissingApproverAssignmentsSchema(assignmentError.message);
+        if (!hasAssignments) {
+            const canAutoAssign = !!(req.user?.roles.includes('ADMIN') || req.user?.roles.includes('APPROVER'));
+            if (!canAutoAssign && !assignmentSchemaMissing) {
+                return res.status(400).json({ error: 'At least one approver assignment is required before submission.' });
+            }
+
+            const { error: autoAssignError } = await req.supabase
+                .from('letter_approver_assignments')
+                .insert({
+                    letter_id: id,
+                    approver_id: userId,
+                    decision: 'PENDING'
+                });
+            if (autoAssignError && !isMissingApproverAssignmentsSchema(autoAssignError.message)) {
+                return res.status(500).json({ error: autoAssignError.message });
+            }
         }
     }
 
@@ -560,8 +931,10 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
             .eq('letter_id', id)
             .eq('approver_id', userId)
             .single();
-        if (assignmentError || !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
-        if (assignment.decision === 'APPROVED') return res.status(400).json({ error: 'Approval already recorded.' });
+        const assignmentSchemaMissing = isMissingApproverAssignmentsSchema(assignmentError?.message);
+        if (assignmentError && !assignmentSchemaMissing) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+        if (!assignmentSchemaMissing && !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+        if (assignment && assignment.decision === 'APPROVED') return res.status(400).json({ error: 'Approval already recorded.' });
     }
 
     const { error: assignmentUpdateError } = await req.supabase
@@ -569,20 +942,32 @@ app.post('/api/letters/:id/approve', async (req: Request, res: Response) => {
         .update({ decision: 'APPROVED', decided_at: new Date().toISOString(), comment: comment ?? null, source_ip, updated_at: new Date().toISOString() })
         .eq('letter_id', id)
         .eq('approver_id', userId);
-    if (!isAdmin && assignmentUpdateError) return res.status(500).json({ error: assignmentUpdateError.message });
+    if (!isAdmin && assignmentUpdateError && !isMissingApproverAssignmentsSchema(assignmentUpdateError.message)) {
+        return res.status(500).json({ error: assignmentUpdateError.message });
+    }
 
     await req.supabase.from('approvals').insert({ letter_id: id, approver_id: userId, comment, source_ip });
 
-    const { data: assignments, error: assignmentsError } = await req.supabase
-        .from('letter_approver_assignments')
-        .select('decision')
-        .eq('letter_id', id);
-    if (assignmentsError) return res.status(500).json({ error: assignmentsError.message });
+    let approved = 0;
+    let total = 0;
+    let quorumReached = false;
 
-    const items = assignments ?? [];
-    const approved = items.filter((item: any) => item.decision === 'APPROVED').length;
-    const total = items.length;
-    const quorumReached = total > 0 && approved === total;
+    if (isAdmin) {
+        quorumReached = true;
+    } else {
+        const { data: assignments, error: assignmentsError } = await req.supabase
+            .from('letter_approver_assignments')
+            .select('decision')
+            .eq('letter_id', id);
+        if (assignmentsError && !isMissingApproverAssignmentsSchema(assignmentsError.message)) {
+            return res.status(500).json({ error: assignmentsError.message });
+        }
+
+        const items = assignments ?? [];
+        approved = items.filter((item: any) => item.decision === 'APPROVED').length;
+        total = items.length;
+        quorumReached = total > 0 && approved === total;
+    }
 
     if (quorumReached) {
         await req.supabase.from('letters').update({ status: 'APPROVED', updated_at: new Date().toISOString() }).eq('id', id);
@@ -611,11 +996,23 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
     const { channel, printer_id } = req.body;
     const source_ip = req.ip || '0.0.0.0';
 
-    const { data: letter, error: fetchError } = await req.supabase
+    const primaryIssueResult = await req.supabase
         .from('letters')
         .select('*, departments(*), letter_tags(tag_id)') // OPTIMIZED: Fetch only tag_id
         .eq('id', id)
         .single();
+    let letter: any = primaryIssueResult.data;
+    let fetchError = primaryIssueResult.error;
+
+    if (fetchError && shouldUseLegacyFallback(fetchError.message)) {
+        const fallbackIssueResult = await req.supabase
+            .from('letters')
+            .select('id, context, status, content, department_id, created_by')
+            .eq('id', id)
+            .single();
+        letter = fallbackIssueResult.data;
+        fetchError = fallbackIssueResult.error;
+    }
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
     if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
@@ -674,6 +1071,54 @@ app.post('/api/letters/:id/issue', async (req: Request, res: Response) => {
         if (rpcError.message.includes('Version Mismatch')) {
             return res.status(409).json({ error: 'Issuance conflict: Version mismatch. Please try again.' });
         }
+
+        if (isMissingVerificationTokenColumn(rpcError.message)) {
+            // Legacy schema compatibility: no verification_token column on letter_versions.
+            // We still complete issuance by persisting a new version (without verification_token)
+            // and transitioning the letter status to ISSUED.
+            const { error: legacyVersionError } = await req.supabase
+                .from('letter_versions')
+                .insert({
+                    letter_id: id,
+                    version_number: nextVersion,
+                    content: letter.content,
+                    content_hash: contentHash,
+                    created_by: userId
+                });
+
+            if (legacyVersionError && !legacyVersionError.message.toLowerCase().includes('duplicate key')) {
+                return res.status(500).json({ error: 'Legacy issuance versioning failed: ' + legacyVersionError.message });
+            }
+
+            const { error: legacyStatusError } = await req.supabase
+                .from('letters')
+                .update({ status: 'ISSUED', updated_at: new Date().toISOString() })
+                .eq('id', id);
+            if (legacyStatusError) {
+                return res.status(500).json({ error: 'Legacy issuance status update failed: ' + legacyStatusError.message });
+            }
+
+            await req.supabase.from('audit_logs').insert({
+                action: 'ISSUE',
+                entity_type: 'LETTER',
+                entity_id: id,
+                metadata: {
+                    issued_by: userId,
+                    channel: channel || 'PRINT',
+                    content_hash: contentHash,
+                    compatibility_mode: 'legacy_no_verification_token',
+                    source_ip
+                }
+            });
+
+            const legacyVerifyUrl = `${clientUrl}/verify/${contentHash}`;
+            return res.json({
+                message: 'Letter issued (legacy compatibility mode).',
+                verifyUrl: legacyVerifyUrl,
+                pdf: null
+            });
+        }
+
         return res.status(500).json({ error: 'Issuance failed: ' + rpcError.message });
     }
 
@@ -981,17 +1426,19 @@ app.post('/api/letters/:id/reject', async (req: Request, res: Response) => {
 
     if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
 
-    const { data: letter, error: fetchError } = await req.supabase
-        .from('letters')
-        .select('status, committee_id, department_id, created_by')
-        .eq('id', id)
-        .single();
+    const { letter, fetchError } = await fetchLetterWithLegacyFallback(
+        req,
+        id,
+        'status, committee_id, department_id, created_by',
+        'status, department_id, created_by'
+    );
 
     if (fetchError || !letter) return res.status(404).json({ error: 'Letter not found' });
-    if (!(await canAccessLetter(req, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+    const letterWithDefaults = { ...letter, committee_id: letter.committee_id ?? null };
+    if (!(await canAccessLetter(req, letterWithDefaults))) return res.status(403).json({ error: 'Not authorized for this letter.' });
 
-    if (!letter.committee_id) {
-        if (letter.status !== 'SUBMITTED') {
+    if (!letterWithDefaults.committee_id) {
+        if (letterWithDefaults.status !== 'SUBMITTED') {
             return res.status(400).json({ error: 'Only SUBMITTED non-committee letters can be rejected.' });
         }
         if (!isAdmin) {
@@ -1001,14 +1448,19 @@ app.post('/api/letters/:id/reject', async (req: Request, res: Response) => {
                 .eq('letter_id', id)
                 .eq('approver_id', userId)
                 .single();
-            if (assignmentError || !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+            const assignmentSchemaMissing = isMissingApproverAssignmentsSchema(assignmentError?.message);
+            if (assignmentError && !assignmentSchemaMissing) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
+            if (!assignmentSchemaMissing && !assignment) return res.status(403).json({ error: 'User is not assigned as an approver for this letter.' });
         }
 
-        await req.supabase
+        const { error: assignmentUpdateError } = await req.supabase
             .from('letter_approver_assignments')
             .update({ decision: 'REJECTED', decided_at: new Date().toISOString(), comment: reason, source_ip, updated_at: new Date().toISOString() })
             .eq('letter_id', id)
             .eq('approver_id', userId);
+        if (assignmentUpdateError && !isMissingApproverAssignmentsSchema(assignmentUpdateError.message)) {
+            return res.status(500).json({ error: assignmentUpdateError.message });
+        }
     }
 
     const { error: updateError } = await req.supabase
@@ -1227,6 +1679,95 @@ app.post('/api/tag-default-approvers', async (req: Request, res: Response) => {
     });
 
     res.json({ message: 'Default approvers updated.', count: approverIds.length });
+});
+
+app.post('/api/demo/cleanup-drafts', async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!req.user?.roles.includes('ADMIN') && !req.user?.roles.includes('APPROVER')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const keepRatio = 0.1; // Keep ~10%, delete ~90%
+
+    const { data: drafts, error: draftsError } = await req.supabase
+        .from('letters')
+        .select('id, created_at')
+        .eq('status', 'DRAFT')
+        .order('created_at', { ascending: false });
+
+    if (draftsError) return res.status(500).json({ error: draftsError.message });
+
+    const items = drafts ?? [];
+    if (items.length <= 1) {
+        return res.json({ message: 'Not enough draft letters to prune.', total_drafts: items.length, deleted: 0, kept: items.length });
+    }
+
+    const keepCount = Math.max(1, Math.ceil(items.length * keepRatio));
+    const toDelete = items.slice(keepCount);
+    const letterIds = toDelete.map((item: any) => item.id);
+
+    if (letterIds.length === 0) {
+        return res.json({ message: 'No draft letters selected for deletion.', total_drafts: items.length, deleted: 0, kept: keepCount });
+    }
+
+    const deleteIn = async (table: string, column: string, ids: string[]) => {
+        if (ids.length === 0) return null;
+        const result = await req.supabase.from(table).delete().in(column, ids);
+        return result.error;
+    };
+
+    // Best-effort dependent cleanup for schema variants
+    const { data: versions, error: versionsError } = await req.supabase
+        .from('letter_versions')
+        .select('id, letter_id')
+        .in('letter_id', letterIds);
+    if (versionsError && !isMissingTableOrColumnError(versionsError.message)) {
+        return res.status(500).json({ error: versionsError.message });
+    }
+    const versionIds = (versions ?? []).map((v: any) => v.id);
+
+    const { data: issuances, error: issuancesFetchError } = versionIds.length > 0
+        ? await req.supabase.from('issuances').select('id').in('letter_version_id', versionIds)
+        : { data: [], error: null };
+    if (issuancesFetchError && !isMissingTableOrColumnError(issuancesFetchError.message)) {
+        return res.status(500).json({ error: issuancesFetchError.message });
+    }
+    const issuanceIds = (issuances ?? []).map((i: any) => i.id);
+
+    const ignoreOrFail = (err: any) => {
+        if (!err) return null;
+        if (isMissingTableOrColumnError(err.message)) return null;
+        return err;
+    };
+
+    let err: any;
+    err = ignoreOrFail(await deleteIn('letter_tags', 'letter_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('letter_approver_assignments', 'letter_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('acknowledgements', 'letter_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('email_links', 'letter_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('approvals', 'letter_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('approvals', 'letter_version_id', versionIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('print_requests', 'issuance_id', issuanceIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('print_audits', 'issuance_id', issuanceIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('issuances', 'id', issuanceIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('letter_versions', 'id', versionIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('audit_logs', 'entity_id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+    err = ignoreOrFail(await deleteIn('letters', 'id', letterIds)); if (err) return res.status(500).json({ error: err.message });
+
+    await req.supabase.from('audit_logs').insert({
+        action: 'DEMO_CLEANUP_DRAFTS',
+        entity_type: 'LETTER',
+        entity_id: letterIds[0],
+        metadata: { deleted_count: letterIds.length, kept_count: keepCount, triggered_by: userId }
+    });
+
+    res.json({
+        message: `Deleted ${letterIds.length} draft letters (kept ${keepCount}).`,
+        total_drafts: items.length,
+        deleted: letterIds.length,
+        kept: keepCount
+    });
 });
 
 // Create Tag

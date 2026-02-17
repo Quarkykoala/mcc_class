@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { Wand2, Play, CheckCheck, Loader2, FastForward } from "lucide-react";
+import { Wand2, Play, CheckCheck, Loader2, FastForward, Workflow, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { supabase } from '@/lib/supabase';
 
 interface DemoDebugMenuProps {
-    onRefresh: () => void;
+    onRefresh: () => Promise<void>;
 }
 
 export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
@@ -13,21 +14,34 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
 
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
-    // Helper to get token (assuming standard location or just mocking for demo if demo mode is open)
-    // In demo mode, backend might be permissive or we use the stored session.
-    // We'll try to find the session in localStorage "sb-..." or rely on the App wrapper handling it?
-    // Actually, we should probably pass the fetch function or token as prop.
-    // BUT the 'authenticatedFetch' logic is inside App.tsx.
-    // We will re-implement a simple fetch here that grabs the token from storage if possible.
-    // OR, we assume App.tsx passes a "executeAction" prop.
-    // SIMPLER: Define the logic in App.tsx and pass handlers? No, too much prop drilling.
-    // Let's assume we can fetch directly using the same logic if we can get the token.
-    // The token is in `localStorage.getItem('sb-<ref>-auth-token')`.
-    // Wait, `supabase-js` handles it.
-    // We can import `supabase` client and use `supabase.auth.getSession()`.
+    const formatErrorMessage = (value: unknown) => {
+        if (value instanceof Error) return value.message;
+        if (typeof value === 'string') return value;
+        if (value == null) return 'Unknown error';
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    };
+
+    const withLabeledAction = async <T,>(label: string, action: () => Promise<T>) => {
+        try {
+            return await action();
+        } catch (error) {
+            const message = `${label} failed: ${formatErrorMessage(error)}`;
+            throw new Error(message);
+        }
+    };
+
+    const handleDemoError = (context: string, error: unknown) => {
+        const message = `${context} failed: ${formatErrorMessage(error)}`;
+        console.error(message, error);
+        alert(message);
+    };
 
     const getSession = async () => {
-        const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
+        const { data } = await supabase.auth.getSession();
         return data.session;
     };
 
@@ -45,46 +59,101 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
         });
     };
 
+    const getDepartmentId = async () => {
+        const deptRes = await authenticatedFetch(`${API_BASE}/departments?context=COMPANY`);
+        if (!deptRes.ok) {
+            const errorBody = await deptRes.text();
+            throw new Error(`Failed to fetch departments: ${errorBody}`);
+        }
+        const depts = await deptRes.json();
+        const deptList = Array.isArray(depts) ? depts : (depts.data || []);
+        if (!deptList.length) throw new Error('No departments available for demo flow');
+        return deptList[0].id;
+    };
+
+    const createDraft = async (departmentId: string, title: string, content: string) => {
+        const res = await authenticatedFetch(`${API_BASE}/letters`, {
+            method: 'POST',
+            body: JSON.stringify({
+                context: 'COMPANY',
+                department_id: departmentId,
+                title,
+                content,
+                tag_ids: []
+            })
+        });
+        if (!res.ok) {
+            const errorBody = await res.text();
+            throw new Error(`Failed to create draft: ${errorBody}`);
+        }
+        return res.json();
+    };
+
+    const runAction = async (path: string, body: Record<string, unknown> = {}) => {
+        const res = await authenticatedFetch(`${API_BASE}${path}`, {
+            method: 'POST',
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            const errorBody = await res.text();
+            throw new Error(`Action ${path} failed: ${errorBody}`);
+        }
+        return res.json();
+    };
+
+    const fetchVisibleLetters = async () => {
+        const res = await authenticatedFetch(`${API_BASE}/letters`);
+        if (!res.ok) {
+            const errorBody = await res.text();
+            throw new Error(`Failed to fetch visible letters: ${errorBody}`);
+        }
+
+        const data = await res.json();
+        return Array.isArray(data) ? data : (data.data || []);
+    };
+
     const generateDrafts = async () => {
         setLoading(true);
         try {
-            const contents = [
-                "This letter confirms the employment details of the subject.",
-                "We acknowledge receipt of the payment regarding invoice #992.",
-                "The committee has reviewed the proposal and grants approval.",
-                "Please be advised that the audit for Q3 is complete."
+            const departmentId = await withLabeledAction('Department lookup', () => getDepartmentId());
+            const drafts = [
+                {
+                    title: 'Employment Confirmation',
+                    content: 'This letter confirms active employment status as of today.'
+                },
+                {
+                    title: 'Invoice Receipt Acknowledgement',
+                    content: 'We acknowledge receipt of payment for invoice INV-992.'
+                },
+                {
+                    title: 'Policy Advisory Notice',
+                    content: 'Please review and implement the updated internal policy guidelines.'
+                }
             ];
+            const createdIds: string[] = [];
 
-            for (let i = 0; i < 3; i++) {
-                // Demo user is usually in a department.
-                // Let's try to post with a hardcoded department or random if we knew IDs.
-                // Default demo department ID is often fixed or we can just send "Legal" if backend handles name lookup? backend expects ID.
-                // Let's use the one from the dropdown in App, but we don't have it here.
-                // We'll guess or pick the first one from the list if we could fetch.
-                // Let's fetch departments first.
-
-                const deptRes = await authenticatedFetch(`${API_BASE}/departments`);
-                const depts = await deptRes.json();
-                const deptList = Array.isArray(depts) ? depts : (depts.data || []);
-                const randomDept = deptList[Math.floor(Math.random() * deptList.length)];
-
-                if (!randomDept) continue;
-
-                await authenticatedFetch(`${API_BASE}/letters`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        department_id: randomDept.id,
-                        content: contents[Math.floor(Math.random() * contents.length)] + ` (Auto-Gen #${Math.floor(Math.random() * 1000)})`,
-                        tags: { urgent: Math.random() > 0.5, confidential: Math.random() > 0.8 },
-                        internal_only: false
-                    })
-                });
+            for (const draft of drafts) {
+                const created = await withLabeledAction(
+                    `Draft "${draft.title}" creation`,
+                    () => createDraft(departmentId, draft.title, `${draft.content} (Demo ${Date.now()})`)
+                );
+                if (created?.id) {
+                    createdIds.push(created.id);
+                }
             }
-            onRefresh();
+
+            await onRefresh();
+            const visibleLetters = await fetchVisibleLetters();
+            const visibleIds = new Set(visibleLetters.map((item: any) => item.id));
+            const visibleCreatedCount = createdIds.filter((id) => visibleIds.has(id)).length;
+            if (visibleCreatedCount === 0) {
+                throw new Error('Drafts were created but are not visible in your Stage Panel. This usually means token/permission filtering is hiding them.');
+            }
+
             setIsOpen(false);
+            alert(`Generated ${visibleCreatedCount} draft(s) visible in Stage Panel.`);
         } catch (e) {
-            console.error(e);
-            alert("Failed to generate drafts");
+            handleDemoError('Generate 3 Random Drafts', e);
         } finally {
             setLoading(false);
         }
@@ -93,35 +162,145 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
     const approveAll = async () => {
         setLoading(true);
         try {
-            // Get all letters
-            const res = await authenticatedFetch(`${API_BASE}/letters`);
+            const res = await withLabeledAction('Fetch letters for approval', () =>
+                authenticatedFetch(`${API_BASE}/letters`)
+            );
+            if (!res.ok) {
+                const errorBody = await res.text();
+                throw new Error(`Failed to fetch letters: ${errorBody}`);
+            }
             const data = await res.json();
-            const drafts = data.data.filter((l: any) => l.status === 'DRAFT');
+            const letters = Array.isArray(data) ? data : (data.data || []);
+            const drafts = letters.filter((l: any) => l.status === 'DRAFT');
+            const submitted = letters.filter((l: any) => l.status === 'SUBMITTED');
 
             for (const l of drafts) {
-                await authenticatedFetch(`${API_BASE}/letters/${l.id}/approve`, { method: 'POST' });
-                // Simulate small delay for effect
+                await runAction(`/letters/${l.id}/submit`);
+                await runAction(`/letters/${l.id}/approve`);
                 await new Promise(r => setTimeout(r, 200));
             }
-            onRefresh();
+
+            for (const l of submitted) {
+                await runAction(`/letters/${l.id}/approve`);
+                await new Promise(r => setTimeout(r, 200));
+            }
+
+            await onRefresh();
             setIsOpen(false);
-        } catch (e) { console.error(e); } finally { setLoading(false); }
+            alert('Pending drafts/submitted letters approved.');
+        } catch (e) {
+            handleDemoError('Approve Pending Drafts', e);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const issueAll = async () => {
         setLoading(true);
         try {
-            const res = await authenticatedFetch(`${API_BASE}/letters`);
+            const res = await withLabeledAction('Fetch letters for issuance', () =>
+                authenticatedFetch(`${API_BASE}/letters`)
+            );
+            if (!res.ok) {
+                const errorBody = await res.text();
+                throw new Error(`Failed to fetch letters: ${errorBody}`);
+            }
             const data = await res.json();
-            const approved = data.data.filter((l: any) => l.status === 'APPROVED');
+            const letters = Array.isArray(data) ? data : (data.data || []);
+            const approved = letters.filter((l: any) => l.status === 'APPROVED');
 
             for (const l of approved) {
-                await authenticatedFetch(`${API_BASE}/letters/${l.id}/issue`, { method: 'POST' });
+                await runAction(`/letters/${l.id}/issue`, { channel: 'PRINT', printer_id: 'DEMO' });
                 await new Promise(r => setTimeout(r, 200));
             }
-            onRefresh();
+            await onRefresh();
             setIsOpen(false);
-        } catch (e) { console.error(e); } finally { setLoading(false); }
+            alert('Approved letters issued.');
+        } catch (e) {
+            handleDemoError('Issue Approved Letters', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const generateFlowDataset = async () => {
+        setLoading(true);
+        try {
+            const departmentId = await withLabeledAction('Department lookup', () => getDepartmentId());
+            const suffix = Date.now();
+
+            const draft = await withLabeledAction(
+                'Draft state creation',
+                () => createDraft(departmentId, `Demo Draft ${suffix}`, 'This draft remains in DRAFT state.')
+            );
+
+            const submitted = await withLabeledAction(
+                'Submitted state creation',
+                () => createDraft(departmentId, `Demo Submitted ${suffix}`, 'This draft is submitted for review.')
+            );
+            await withLabeledAction('Submitting submitted letter', () => runAction(`/letters/${submitted.id}/submit`));
+
+            const approved = await withLabeledAction(
+                'Approved state creation',
+                () => createDraft(departmentId, `Demo Approved ${suffix}`, 'This draft is approved but not issued.')
+            );
+            await withLabeledAction('Submitting approved letter', () => runAction(`/letters/${approved.id}/submit`));
+            await withLabeledAction('Approving approved letter', () => runAction(`/letters/${approved.id}/approve`));
+
+            const issued = await withLabeledAction(
+                'Issued state creation',
+                () => createDraft(departmentId, `Demo Issued ${suffix}`, 'This draft is approved and then issued.')
+            );
+            await withLabeledAction('Submitting issued letter', () => runAction(`/letters/${issued.id}/submit`));
+            await withLabeledAction('Approving issued letter', () => runAction(`/letters/${issued.id}/approve`));
+            await withLabeledAction('Issuing issued letter', () =>
+                runAction(`/letters/${issued.id}/issue`, { channel: 'PRINT', printer_id: 'DEMO' })
+            );
+
+            const rejected = await withLabeledAction(
+                'Rejected state creation',
+                () => createDraft(departmentId, `Demo Rejected ${suffix}`, 'This draft gets rejected after submission.')
+            );
+            await withLabeledAction('Submitting rejected letter', () => runAction(`/letters/${rejected.id}/submit`));
+            await withLabeledAction('Rejecting rejected letter', () =>
+                runAction(`/letters/${rejected.id}/reject`, { reason: 'Demo rejection sample' })
+            );
+
+            // keep variable referenced for readability and possible future extension
+            if (!draft?.id) {
+                throw new Error('Draft creation failed during demo flow setup.');
+            }
+
+            await onRefresh();
+            const visibleLetters = await fetchVisibleLetters();
+            const createdIds = [draft?.id, submitted?.id, approved?.id, issued?.id, rejected?.id].filter(Boolean) as string[];
+            const visibleIds = new Set(visibleLetters.map((item: any) => item.id));
+            const visibleCount = createdIds.filter((id) => visibleIds.has(id)).length;
+            if (visibleCount === 0) {
+                throw new Error('Flow dataset was created but none of those letters are visible in Stage Panel. Check user visibility scope.');
+            }
+
+            setIsOpen(false);
+            alert(`Demo flow dataset created. ${visibleCount}/5 letter(s) visible in Stage Panel.`);
+        } catch (e) {
+            handleDemoError('Generate Full Flow Dataset', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const cleanupDrafts = async () => {
+        setLoading(true);
+        try {
+            await withLabeledAction('Draft cleanup', () => runAction('/demo/cleanup-drafts'));
+            await onRefresh();
+            setIsOpen(false);
+            alert('Cleaned up old draft letters. Kept a small recent set.');
+        } catch (e) {
+            handleDemoError('Cleanup Drafts', e);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -158,6 +337,14 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
                         <Button variant="outline" onClick={issueAll} disabled={loading} className="justify-start">
                             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FastForward className="mr-2 h-4 w-4 text-orange-500" />}
                             Issue Approved Letters
+                        </Button>
+                        <Button variant="outline" onClick={generateFlowDataset} disabled={loading} className="justify-start">
+                            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Workflow className="mr-2 h-4 w-4 text-purple-500" />}
+                            Generate Full Flow Dataset
+                        </Button>
+                        <Button variant="outline" onClick={cleanupDrafts} disabled={loading} className="justify-start">
+                            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4 text-red-500" />}
+                            Cleanup 90% Drafts
                         </Button>
                     </div>
                 </DialogContent>
