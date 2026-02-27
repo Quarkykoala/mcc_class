@@ -21,19 +21,19 @@ async function verify() {
     try {
         for (const table of tables) {
             try {
-                const [result]: any = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
+                const [result] = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
                 console.log(`📊 Table ${table}: ${result[0].count} records remaining.`);
-            } catch (e: any) {
+            } catch (e) {
                 console.error(`⚠️ Exception counting ${table}:`, e.message);
             }
         }
 
         try {
-            const [result]: any = await pool.query(
+            const [result] = await pool.query(
                 "SELECT COUNT(*) as count FROM letters WHERE status = 'DRAFT'"
             );
             console.log(`📝 Remaining DRAFT letters: ${result[0].count}`);
-        } catch (e: any) {
+        } catch (e) {
             console.error(`⚠️ Exception counting DRAFT letters:`, e.message);
         }
 

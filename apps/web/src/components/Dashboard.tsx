@@ -167,8 +167,6 @@ export function Dashboard() {
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
         // const filePath = `attachments/${selectedLetterForAttachments}/${fileName}`;
 
         // Save attachment metadata to database (file storage skipped per migration)

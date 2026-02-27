@@ -17,7 +17,7 @@ async function testDelete() {
     console.log('🧪 Testing deletion with MySQL...');
 
     try {
-        const [letters]: any = await pool.query('SELECT id FROM letters LIMIT 1');
+        const [letters] = await pool.query('SELECT id FROM letters LIMIT 1');
 
         if (!letters || letters.length === 0) {
             console.log('No letters to test with.');
@@ -27,7 +27,7 @@ async function testDelete() {
         const oneLetter = letters[0];
         console.log(`Attempting to delete letter ${oneLetter.id}...`);
 
-        const [result]: any = await pool.query('DELETE FROM letters WHERE id = ?', [oneLetter.id]);
+        const [result] = await pool.query('DELETE FROM letters WHERE id = ?', [oneLetter.id]);
 
         if (result.affectedRows > 0) {
             console.log('✅ Deletion succeeded');
@@ -35,7 +35,7 @@ async function testDelete() {
             console.log('❌ Deletion failed or no rows affected');
         }
 
-        const [countResult]: any = await pool.query('SELECT COUNT(*) as count FROM letters');
+        const [countResult] = await pool.query('SELECT COUNT(*) as count FROM letters');
         console.log(`📊 Remaining count: ${countResult[0].count}`);
     } finally {
         await pool.end();

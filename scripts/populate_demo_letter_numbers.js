@@ -27,9 +27,9 @@ async function run() {
         // 2. Pass 1: Set ALL to a temporary very high, safe range
         console.log('🧹 Clearing 1-1000 range to avoid unique conflicts...');
         for (let i = 0; i < letters.length; i++) {
-            const l: any = letters[i];
+            const l = letters[i];
             const tempNum = 2000000 + i;
-            const [result]: any = await pool.query(
+            const [result] = await pool.query(
                 'UPDATE letters SET letter_number = ? WHERE id = ?',
                 [tempNum, l.id]
             );
@@ -47,7 +47,7 @@ async function run() {
         let otherCount = 0;
 
         for (let i = 0; i < letters.length; i++) {
-            const l: any = letters[i];
+            const l = letters[i];
             let target;
             if (l.status === 'ISSUED') {
                 target = seq++;
@@ -57,7 +57,7 @@ async function run() {
                 otherCount++;
             }
 
-            const [result]: any = await pool.query(
+            const [result] = await pool.query(
                 'UPDATE letters SET letter_number = ? WHERE id = ?',
                 [target, l.id]
             );

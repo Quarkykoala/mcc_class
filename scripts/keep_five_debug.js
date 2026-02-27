@@ -29,23 +29,23 @@ async function keepFiveOnly() {
             return;
         }
 
-        const toDelete = letters.slice(5).map((l: any) => l.id);
+        const toDelete = letters.slice(5).map((l) => l.id);
         console.log(`🗑️  Attempting to delete ${toDelete.length} records...`);
 
         // Delete in chunks
         for (let i = 0; i < toDelete.length; i += 10) {
             const chunk = toDelete.slice(i, i + 10);
             const placeholders = chunk.map(() => '?').join(',');
-            
+
             try {
                 await pool.query(`DELETE FROM letters WHERE id IN (${placeholders})`, chunk);
                 console.log(`✅ Deleted chunk ${Math.floor(i / 10) + 1}`);
-            } catch (delErr: any) {
+            } catch (delErr) {
                 console.error(`❌ Delete Error (Chunk ${i}):`, delErr.message);
             }
         }
 
-        const [countResult]: any = await pool.query('SELECT COUNT(*) as count FROM letters');
+        const [countResult] = await pool.query('SELECT COUNT(*) as count FROM letters');
         console.log(`📊 Final count: ${countResult[0].count}`);
     } finally {
         await pool.end();

@@ -26,7 +26,7 @@ async function listRecords() {
             return;
         }
 
-        letters.forEach((l: any, i: number) => {
+        letters.forEach((l, i) => {
             console.log(`${i + 1}: [${l.id}] (${l.status}) - ${l.created_at}`);
         });
 

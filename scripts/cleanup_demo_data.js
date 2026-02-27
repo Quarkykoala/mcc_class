@@ -6,14 +6,14 @@ async function cleanupDemoData() {
 
     try {
         // Get all letters
-        const letters = await query<{ id: string }>('SELECT id FROM letters');
+        const letters = await query('SELECT id FROM letters');
         console.log(`📋 Found ${letters.length} total letters`);
 
         // Get drafts (keep most recent 5)
-        const drafts = await query<{ id: string; created_at: Date }>(
+        const drafts = await query(
             "SELECT id, created_at FROM letters WHERE status = 'DRAFT' ORDER BY created_at DESC"
         );
-        
+
         console.log(`📝 Found ${drafts.length} DRAFT letters`);
 
         if (drafts.length <= 5) {
@@ -28,7 +28,7 @@ async function cleanupDemoData() {
         // Delete related data
         for (const letterId of deleteIds) {
             // Get letter versions
-            const versions = await query<{ id: string }>('SELECT id FROM letter_versions WHERE letter_id = ?', [letterId]);
+            const versions = await query('SELECT id FROM letter_versions WHERE letter_id = ?', [letterId]);
             const versionIds = versions.map(v => v.id);
 
             if (versionIds.length > 0) {
@@ -45,9 +45,9 @@ async function cleanupDemoData() {
         }
 
         console.log(`✅ Deleted ${deleteIds.length} draft letters`);
-        
+
         // Show remaining
-        const remaining = await query<{ id: string }>("SELECT id FROM letters WHERE status = 'DRAFT'");
+        const remaining = await query("SELECT id FROM letters WHERE status = 'DRAFT'");
         console.log(`📝 Remaining DRAFT letters: ${remaining.length}`);
 
     } catch (err) {

@@ -16,12 +16,12 @@ async function checkDrafts() {
     const pool = mysql.createPool(config);
 
     try {
-        const [result]: any = await pool.query(
+        const [result] = await pool.query(
             "SELECT COUNT(*) as count FROM letters WHERE status = 'DRAFT'"
         );
         console.log(`Number of draft letters: ${result[0].count}`);
         process.exit(0);
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error fetching drafts:', error.message);
         process.exit(1);
     } finally {
