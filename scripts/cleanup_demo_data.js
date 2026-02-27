@@ -1,100 +1,59 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import { query, queryOne, execute } from './db';
 
-// Load env from apps/api/.env
-dotenv.config({ path: path.join(__dirname, '../apps/api/.env') });
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('SUPABASE_URL and key must be set in apps/api/.env');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-async function cleanup() {
-    console.log('🧹 Starting cleanup script...');
-    console.log(`🔗 Connecting to: ${supabaseUrl}`);
-
-    // Identify demo user and draft letters
-    const demoUserId = '00000000-0000-0000-0000-000000000001';
+async function cleanupDemoData() {
+    console.log('🧹 Starting demo data cleanup...');
+    console.log('🔗 Connecting to MySQL database...');
 
     try {
-        // 1. Fetch letters to delete
-        console.log('🔍 Finding letters to clean up...');
-        const { data: lettersToDelete, error: fetchError } = await supabase
-            .from('letters')
-            .select('id')
-            .or(`status.eq.DRAFT,created_by.eq.${demoUserId}`);
+        // Get all letters
+        const letters = await query<{ id: string }>('SELECT id FROM letters');
+        console.log(`📋 Found ${letters.length} total letters`);
 
-        if (fetchError) {
-            console.error('❌ Error fetching letters:', fetchError.message);
+        // Get drafts (keep most recent 5)
+        const drafts = await query<{ id: string; created_at: Date }>(
+            "SELECT id, created_at FROM letters WHERE status = 'DRAFT' ORDER BY created_at DESC"
+        );
+        
+        console.log(`📝 Found ${drafts.length} DRAFT letters`);
+
+        if (drafts.length <= 5) {
+            console.log('✅ No cleanup needed (5 or fewer drafts)');
             return;
         }
 
-        const letterIds = lettersToDelete.map(l => l.id);
-        console.log(`📝 Found ${letterIds.length} letters to remove.`);
+        const toDelete = drafts.slice(5);
+        const deleteIds = toDelete.map(d => d.id);
+        console.log(`🗑️  Will delete ${deleteIds.length} old drafts`);
 
-        if (letterIds.length > 0) {
-            // 2. Fetch versions linked to these letters
-            const { data: versions, error: vError } = await supabase
-                .from('letter_versions')
-                .select('id')
-                .in('letter_id', letterIds);
-
-            const versionIds = versions?.map(v => v.id) || [];
+        // Delete related data
+        for (const letterId of deleteIds) {
+            // Get letter versions
+            const versions = await query<{ id: string }>('SELECT id FROM letter_versions WHERE letter_id = ?', [letterId]);
+            const versionIds = versions.map(v => v.id);
 
             if (versionIds.length > 0) {
-                // 3. Delete Issuances and Approvals first due to FKs
-                console.log('🗑️  Deleting issuances...');
-                await supabase.from('issuances').delete().in('letter_version_id', versionIds);
-
-                console.log('🗑️  Deleting approvals...');
-                await supabase.from('approvals').delete().in('letter_version_id', versionIds);
-
-                console.log('🗑️  Deleting versions...');
-                await supabase.from('letter_versions').delete().in('id', versionIds);
+                const ph = versionIds.map(() => '?').join(',');
+                await execute(`DELETE FROM issuances WHERE letter_version_id IN (${ph})`, versionIds);
+                await execute(`DELETE FROM approvals WHERE letter_id = ?`, [letterId]);
+                await execute(`DELETE FROM letter_versions WHERE id IN (${ph})`, versionIds);
             }
 
-            console.log('🗑️  Deleting letter tags...');
-            await supabase.from('letter_tags').delete().in('letter_id', letterIds);
-
-            console.log('🗑️  Deleting acknowledgements...');
-            await supabase.from('acknowledgements').delete().in('letter_id', letterIds);
-
-            console.log('🗑️  Deleting letters...');
-            const { error: deleteError } = await supabase
-                .from('letters')
-                .delete()
-                .in('id', letterIds);
-
-            if (deleteError) {
-                console.error('❌ Error deleting letters:', deleteError.message);
-            } else {
-                console.log('✅ Successfully deleted letters.');
-            }
+            await execute('DELETE FROM letter_tags WHERE letter_id = ?', [letterId]);
+            await execute('DELETE FROM letter_approver_assignments WHERE letter_id = ?', [letterId]);
+            await execute('DELETE FROM acknowledgements WHERE letter_id = ?', [letterId]);
+            await execute('DELETE FROM letters WHERE id = ?', [letterId]);
         }
 
-        // 4. Cleanup Audit Logs
-        console.log('🗑️  Clearing audit logs...');
-        const { error: logError } = await supabase
-            .from('audit_logs')
-            .delete()
-            .neq('action', 'SYSTEM_INIT'); // Placeholder to delete all but init
+        console.log(`✅ Deleted ${deleteIds.length} draft letters`);
+        
+        // Show remaining
+        const remaining = await query<{ id: string }>("SELECT id FROM letters WHERE status = 'DRAFT'");
+        console.log(`📝 Remaining DRAFT letters: ${remaining.length}`);
 
-        if (logError) {
-            console.error('❌ Error deleting audit logs:', logError.message);
-        } else {
-            console.log('✅ Audit logs cleared.');
-        }
-
-        console.log('✨ Cleanup complete!');
     } catch (err) {
-        console.error('💥 Fatal error during cleanup:', err.message);
+        console.error('❌ Error:', err);
+        process.exit(1);
     }
 }
 
-cleanup();
+cleanupDemoData();

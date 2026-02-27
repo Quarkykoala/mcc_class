@@ -1,0 +1,14 @@
+import { LetterStatus } from '@mcc/shared';
+
+const transitions: Record<LetterStatus, LetterStatus[]> = {
+    DRAFT: ['SUBMITTED'],
+    SUBMITTED: ['APPROVED', 'REJECTED'],
+    APPROVED: ['ISSUED'],
+    REJECTED: [],
+    ISSUED: ['REVOKED'],
+    REVOKED: [],
+};
+
+export const canTransition = (from: LetterStatus, to: LetterStatus) => {
+    return transitions[from]?.includes(to) ?? false;
+};

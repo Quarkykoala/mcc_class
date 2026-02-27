@@ -1,23 +1,24 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import { query } from './db';
 
 export async function verifyApproverRole(
-  supabase: SupabaseClient,
   userId: string
 ): Promise<boolean> {
   if (!userId) return false;
 
-  const { data: userRoles, error } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', userId);
+  try {
+    const userRoles = await query<{ role: string }>(
+      'SELECT role FROM user_roles WHERE user_id = ?',
+      [userId]
+    );
 
-  if (error || !userRoles) {
-    if (error) {
-      console.error('Error fetching user roles:', error);
+    if (!userRoles || userRoles.length === 0) {
+      return false;
     }
+
+    const allowedRoles = ['APPROVER', 'ADMIN'];
+    return userRoles.some((r) => allowedRoles.includes(r.role));
+  } catch (error) {
+    console.error('Error fetching user roles:', error);
     return false;
   }
-
-  const allowedRoles = ['APPROVER', 'ADMIN'];
-  return userRoles.some((r: { role: string }) => allowedRoles.includes(r.role));
 }

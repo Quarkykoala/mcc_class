@@ -1,97 +1,64 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import { query, execute } from './db';
 
-// Load env from apps/api/.env
-dotenv.config({ path: path.join(__dirname, '../apps/api/.env') });
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('SUPABASE_URL and key must be set in apps/api/.env');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-async function keepFiveOnly() {
-    console.log('🧹 Starting Keep-5 Cleanup...');
-
+async function keepFive() {
+    console.log('🧹 Starting keep-five cleanup (keep most recent 5 drafts)...');
+    
     try {
-        // 1. Get all letters ordered by creation date
-        const { data: allLetters, error: fetchError } = await supabase
-            .from('letters')
-            .select('id, created_at')
-            .order('created_at', { ascending: false });
-
-        if (fetchError) {
-            console.error('❌ Error fetching letters:', fetchError.message);
+        // Get all DRAFT letters, ordered by created_at descending
+        const drafts = await query<{ id: string; created_at: Date }>(
+            "SELECT id, created_at FROM letters WHERE status = 'DRAFT' ORDER BY created_at DESC"
+        );
+        
+        console.log(`📝 Found ${drafts.length} DRAFT letters`);
+        
+        if (drafts.length <= 5) {
+            console.log('✅ No cleanup needed (5 or fewer drafts)');
             return;
         }
-
-        if (allLetters.length <= 5) {
-            console.log(`✅ Only ${allLetters.length} letters found. No deletion needed.`);
-            return;
-        }
-
-        const keepers = allLetters.slice(0, 5);
-        const toDelete = allLetters.slice(5);
-        const keeperIds = keepers.map(l => l.id);
-        const deleteIds = toDelete.map(l => l.id);
-
-        console.log(`📌 Keeping: ${keeperIds.length} records.`);
-        console.log(`🗑️  Deleting: ${deleteIds.length} records.`);
-
-        // 2. Fetch versions for records to delete
-        const { data: versions, error: vError } = await supabase
-            .from('letter_versions')
-            .select('id')
-            .in('letter_id', deleteIds);
-
-        const versionIds = versions?.map(v => v.id) || [];
-
-        if (versionIds.length > 0) {
-            console.log('🗑️  Removing related issuances, approvals, and versions...');
-            await supabase.from('issuances').delete().in('letter_version_id', versionIds);
-            await supabase.from('approvals').delete().in('letter_version_id', versionIds);
-            await supabase.from('letter_versions').delete().in('id', versionIds);
-        }
-
-        console.log('🗑️  Removing other related data...');
-        await supabase.from('letter_tags').delete().in('letter_id', deleteIds);
-        await supabase.from('acknowledgements').delete().in('letter_id', deleteIds);
-
-        // 3. Delete letters
-        const { error: deleteError } = await supabase
-            .from('letters')
-            .delete()
-            .in('id', deleteIds);
-
-        if (deleteError) {
-            console.error('❌ Error deleting letters:', deleteError.message);
-            if (deleteError.message.includes('permission denied')) {
-                console.error('🚨 TIP: This likely requires a SERVICE_ROLE_KEY to bypass RLS.');
+        
+        const toDelete = drafts.slice(5);
+        const deleteIds = toDelete.map(d => d.id);
+        console.log(`🗑️  Will delete ${deleteIds.length} old drafts, keeping 5 most recent`);
+        
+        // Delete in batches
+        const batchSize = 10;
+        let deleted = 0;
+        
+        for (let i = 0; i < deleteIds.length; i += batchSize) {
+            const batch = deleteIds.slice(i, i + batchSize);
+            
+            for (const letterId of batch) {
+                // Get versions first
+                const versions = await query<{ id: string }>('SELECT id FROM letter_versions WHERE letter_id = ?', [letterId]);
+                const versionIds = versions.map(v => v.id);
+                
+                if (versionIds.length > 0) {
+                    const ph = versionIds.map(() => '?').join(',');
+                    await execute(`DELETE FROM issuances WHERE letter_version_id IN (${ph})`, versionIds);
+                    await execute(`DELETE FROM approvals WHERE letter_id = ?`, [letterId]);
+                    await execute(`DELETE FROM letter_versions WHERE id IN (${ph})`, versionIds);
+                }
+                
+                await execute('DELETE FROM letter_tags WHERE letter_id = ?', [letterId]);
+                await execute('DELETE FROM letter_approver_assignments WHERE letter_id = ?', [letterId]);
+                await execute('DELETE FROM acknowledgements WHERE letter_id = ?', [letterId]);
+                await execute('DELETE FROM letters WHERE id = ?', [letterId]);
+                deleted++;
             }
-        } else {
-            console.log('✅ Successfully reduced letters to 5.');
+            
+            console.log(`  Progress: ${deleted}/${deleteIds.length} deleted`);
         }
-
-        // 4. Clear audit logs
-        console.log('🗑️  Clearing audit logs...');
-        const { error: logError } = await supabase.from('audit_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-        if (logError) {
-            console.error('❌ Error clearing audit logs:', logError.message);
-        } else {
-            console.log('✅ Audit logs cleared.');
-        }
-
-        console.log('🏁 Cleanup complete!');
-
+        
+        console.log(`✅ Deleted ${deleted} old drafts`);
+        
+        // Verify remaining
+        const remaining = await query<{ id: string }>("SELECT id FROM letters WHERE status = 'DRAFT'");
+        console.log(`📝 Remaining DRAFT letters: ${remaining.length}`);
+        
     } catch (err) {
-        console.error('💥 Fatal error:', err.message);
+        console.error('❌ Error:', err);
+        process.exit(1);
     }
 }
 
-keepFiveOnly();
+keepFive();

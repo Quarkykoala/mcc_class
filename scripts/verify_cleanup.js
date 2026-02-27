@@ -1,57 +1,46 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
 
-// Load env from apps/api/.env
 dotenv.config({ path: path.join(__dirname, '../apps/api/.env') });
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('SUPABASE_URL and key must be set in apps/api/.env');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+const config = {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'mcc_letters'
+};
 
 async function verify() {
+    const pool = mysql.createPool(config);
     console.log('🔍 Verifying cleanup results...');
 
     const tables = ['letters', 'letter_versions', 'issuances', 'audit_logs', 'approvals'];
 
-    for (const table of tables) {
-        try {
-            const { count, error } = await supabase
-                .from(table)
-                .select('*', { count: 'exact', head: true });
-
-            if (error) {
-                console.error(`❌ Error counting ${table}:`, error.message);
-            } else {
-                console.log(`📊 Table ${table}: ${count} records remaining.`);
-            }
-        } catch (e) {
-            console.error(`⚠️ Exception counting ${table}:`, e.message);
-        }
-    }
-
     try {
-        const { count: draftCount, error: dError } = await supabase
-            .from('letters')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'DRAFT');
-
-        if (dError) {
-            console.error(`❌ Error counting DRAFT letters:`, dError.message);
-        } else {
-            console.log(`📝 Remaining DRAFT letters: ${draftCount}`);
+        for (const table of tables) {
+            try {
+                const [result]: any = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
+                console.log(`📊 Table ${table}: ${result[0].count} records remaining.`);
+            } catch (e: any) {
+                console.error(`⚠️ Exception counting ${table}:`, e.message);
+            }
         }
-    } catch (e) {
-        console.error(`⚠️ Exception counting DRAFT letters:`, e.message);
-    }
 
-    console.log('🏁 Verification complete.');
+        try {
+            const [result]: any = await pool.query(
+                "SELECT COUNT(*) as count FROM letters WHERE status = 'DRAFT'"
+            );
+            console.log(`📝 Remaining DRAFT letters: ${result[0].count}`);
+        } catch (e: any) {
+            console.error(`⚠️ Exception counting DRAFT letters:`, e.message);
+        }
+
+        console.log('🏁 Verification complete.');
+    } finally {
+        await pool.end();
+    }
 }
 
 verify();

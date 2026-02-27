@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
+import { LETTER_STATUSES } from '@mcc/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,8 +7,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RichTextEditor } from './RichTextEditor';
+import { auth } from '../lib/auth';
 
-const STAGES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'ISSUED', 'REJECTED', 'REVOKED'] as const;
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+const STAGES = LETTER_STATUSES;
 
 type Stage = typeof STAGES[number];
 
@@ -25,6 +29,9 @@ type Props = {
   auditLogs: any[];
   approvers: ApproverOption[];
   pendingApprovals: Letter[];
+  hasMore?: boolean;
+  onLoadMore?: () => Promise<void>;
+  loadingMore?: boolean;
   onCreateOrUpdate: (payload: any) => Promise<void>;
   onRoute: (id: string, payload: any) => Promise<void>;
   onSubmit: (id: string) => Promise<void>;
@@ -40,7 +47,7 @@ const formatApproverFallback = (approverId: string) => {
   return approverId.length > 12 ? `User - ${approverId.slice(0, 8)}...${approverId.slice(-4)}` : `User - ${approverId}`;
 };
 
-export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingApprovals, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
+export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingApprovals, hasMore, onLoadMore, loadingMore, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(letters[0]?.id ?? null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -52,6 +59,11 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
   const [isSaving, setIsSaving] = useState(false);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowLoading, setWorkflowLoading] = useState<string | null>(null);
+  
+  // Attachment state
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedLetter = letters.find((letter) => letter.id === selectedId) ?? null;
 
@@ -251,6 +263,116 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
     }
   };
 
+  // Fetch attachments when selected letter changes
+  React.useEffect(() => {
+    if (!selectedLetter?.id) {
+      setAttachments([]);
+      return;
+    }
+    
+    const fetchAttachments = async () => {
+      if (!selectedLetter?.id) {
+        setAttachments([]);
+        return;
+      }
+      
+      try {
+        const token = auth.getAccessToken();
+        if (!token) {
+          setAttachments([]);
+          return;
+        }
+        
+        const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setAttachments([]);
+          return;
+        }
+        const data = await res.json();
+        setAttachments(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error('Failed to fetch attachments:', err);
+        setAttachments([]);
+      }
+    };
+    
+    fetchAttachments();
+  }, [selectedLetter?.id]);
+
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedLetter?.id) return;
+    
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    try {
+      const token = auth.getAccessToken();
+      if (!token) return;
+
+      for (const file of Array.from(files)) {
+        // Save attachment metadata to database (file storage skipped per migration)
+        await fetch(`${API_BASE}/attachments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            letter_id: selectedLetter.id,
+            file_name: file.name,
+            file_path: `local://${file.name}`,
+            file_size: file.size,
+            mime_type: file.type,
+          }),
+        });
+      }
+
+      // Refresh attachments list
+      const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setAttachments(data || []);
+    } catch (err) {
+      console.error('Upload error:', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Handle delete attachment
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!confirm('Delete this attachment?')) return;
+    
+    try {
+      const token = auth.getAccessToken();
+      if (!token) return;
+
+      const res = await fetch(`${API_BASE}/attachments/${attachmentId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok && selectedLetter?.id) {
+        // Refresh attachments
+        const attRes = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await attRes.json();
+        setAttachments(data || []);
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
       <Card>
@@ -318,6 +440,64 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
               )}
             </div>
           </div>
+
+          {/* Attachments Section */}
+          {selectedLetter && (
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <p className="text-sm font-semibold">Attachments</p>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  multiple
+                  className="hidden"
+                  id="workspace-file-upload"
+                />
+                <label
+                  htmlFor="workspace-file-upload"
+                  className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                >
+                  {isUploading ? 'Uploading...' : '+ Add files'}
+                </label>
+              </div>
+              
+              {!Array.isArray(attachments) || attachments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No attachments</p>
+              ) : (
+                <div className="space-y-2 mt-2">
+                  {attachments.map((attachment) => (
+                    <div key={attachment.id} className="flex items-center justify-between bg-zinc-800 rounded p-2">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="text-xs truncate" title={attachment.file_name}>
+                          {attachment.file_name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <a
+                          href={attachment.file_path}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-400 hover:text-blue-300 px-1"
+                        >
+                          View
+                        </a>
+                        <button
+                          onClick={() => handleDeleteAttachment(attachment.id)}
+                          className="text-xs text-red-400 hover:text-red-300 px-1"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
@@ -514,6 +694,11 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
                 ))}
               </div>
             ))}
+            {hasMore && onLoadMore && (
+              <Button variant="outline" onClick={() => void onLoadMore()} disabled={!!loadingMore}>
+                {loadingMore ? 'Loading...' : 'Load more letters'}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

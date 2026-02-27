@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Wand2, Play, CheckCheck, Loader2, FastForward, Workflow, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { supabase } from '@/lib/supabase';
+import { auth } from '@/lib/auth';
 
 interface DemoDebugMenuProps {
     onRefresh: () => Promise<void>;
@@ -41,7 +41,7 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
     };
 
     const getSession = async () => {
-        const { data } = await supabase.auth.getSession();
+        const { data } = await auth.getSession();
         return data.session;
     };
 

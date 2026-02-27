@@ -1,64 +1,60 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleLetterVersionUpdate } from './version-manager';
 
-describe('handleLetterVersionUpdate', () => {
-    let mockSupabase: any;
+const mockQueryOne = vi.fn();
+const mockExecute = vi.fn();
 
+vi.mock('./db', () => ({
+    query: vi.fn(),
+    queryOne: (...args: unknown[]) => mockQueryOne(...args),
+    execute: (...args: unknown[]) => mockExecute(...args),
+}));
+
+vi.mock('uuid', () => ({ v4: () => 'test-uuid' }));
+
+describe('handleLetterVersionUpdate', () => {
     beforeEach(() => {
-        mockSupabase = {
-            from: vi.fn().mockReturnThis(),
-            select: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            order: vi.fn().mockReturnThis(),
-            limit: vi.fn().mockReturnThis(),
-            insert: vi.fn().mockReturnThis(),
-        };
+        vi.clearAllMocks();
     });
 
     it('should insert version 1 when no previous versions exist', async () => {
-        // Mock finding no versions
-        mockSupabase.limit.mockResolvedValueOnce({ data: [], error: null });
-        // Mock successful insert
-        mockSupabase.insert.mockResolvedValueOnce({ error: null });
+        mockQueryOne.mockResolvedValueOnce(null);
+        mockExecute.mockResolvedValueOnce({});
 
-        const result = await handleLetterVersionUpdate(mockSupabase, 'letter-123', 'some content', 'user-1');
+        const result = await handleLetterVersionUpdate('letter-123', 'some content', 'user-1');
 
         expect(result.version).toBe(1);
-        expect(mockSupabase.from).toHaveBeenCalledWith('letter_versions');
-        expect(mockSupabase.insert).toHaveBeenCalledWith({
-            letter_id: 'letter-123',
-            version_number: 1,
-            content: 'some content',
-            content_hash: expect.any(String),
-            created_by: 'user-1'
-        });
+        expect(mockExecute).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO letter_versions'),
+            expect.arrayContaining(['test-uuid', 'letter-123', 1, 'some content', expect.any(String), 'user-1'])
+        );
     });
 
     it('should increment version number when versions exist', async () => {
-        // Mock finding version 5
-        mockSupabase.limit.mockResolvedValueOnce({ data: [{ version_number: 5 }], error: null });
-        mockSupabase.insert.mockResolvedValueOnce({ error: null });
+        mockQueryOne.mockResolvedValueOnce({ version_number: 5 });
+        mockExecute.mockResolvedValueOnce({});
 
-        const result = await handleLetterVersionUpdate(mockSupabase, 'letter-123', 'new content', 'user-1');
+        const result = await handleLetterVersionUpdate('letter-123', 'new content', 'user-1');
 
         expect(result.version).toBe(6);
-        expect(mockSupabase.insert).toHaveBeenCalledWith(expect.objectContaining({
-            version_number: 6
-        }));
+        expect(mockExecute).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO letter_versions'),
+            expect.arrayContaining([expect.any(String), 'letter-123', 6, 'new content', expect.any(String), 'user-1'])
+        );
     });
 
     it('should throw error if fetching versions fails', async () => {
-        mockSupabase.limit.mockResolvedValueOnce({ data: null, error: { message: 'DB Error' } });
+        mockQueryOne.mockRejectedValueOnce(new Error('DB Error'));
 
-        await expect(handleLetterVersionUpdate(mockSupabase, 'id', 'c', 'u'))
-            .rejects.toThrow('Failed to fetch versions: DB Error');
+        await expect(handleLetterVersionUpdate('id', 'c', 'u'))
+            .rejects.toThrow('DB Error');
     });
 
     it('should throw error if inserting version fails', async () => {
-        mockSupabase.limit.mockResolvedValueOnce({ data: [], error: null });
-        mockSupabase.insert.mockResolvedValueOnce({ error: { message: 'Insert Error' } });
+        mockQueryOne.mockResolvedValueOnce(null);
+        mockExecute.mockRejectedValueOnce(new Error('Insert Error'));
 
-        await expect(handleLetterVersionUpdate(mockSupabase, 'id', 'c', 'u'))
-            .rejects.toThrow('Failed to insert version: Insert Error');
+        await expect(handleLetterVersionUpdate('id', 'c', 'u'))
+            .rejects.toThrow('Insert Error');
     });
 });

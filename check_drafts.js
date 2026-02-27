@@ -1,32 +1,32 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config({ path: path.join(__dirname, 'apps/api/.env') });
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('SUPABASE_URL and key must be set in apps/api/.env');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+const config = {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'mcc_letters'
+};
 
 async function checkDrafts() {
-    const { data, error, count } = await supabase
-        .from('letters')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'DRAFT');
+    const pool = mysql.createPool(config);
 
-    if (error) {
+    try {
+        const [result]: any = await pool.query(
+            "SELECT COUNT(*) as count FROM letters WHERE status = 'DRAFT'"
+        );
+        console.log(`Number of draft letters: ${result[0].count}`);
+        process.exit(0);
+    } catch (error: any) {
         console.error('Error fetching drafts:', error.message);
         process.exit(1);
+    } finally {
+        await pool.end();
     }
-
-    console.log(`Number of draft letters: ${count}`);
-    process.exit(0);
 }
 
 checkDrafts();

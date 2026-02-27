@@ -1,41 +1,44 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config({ path: path.join(__dirname, '../apps/api/.env') });
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const config = {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'mcc_letters'
+};
 
 async function testDelete() {
-    console.log('🧪 Testing deletion with Anon Key...');
+    const pool = mysql.createPool(config);
+    console.log('🧪 Testing deletion with MySQL...');
 
-    const { data: oneLetter, error: fError } = await supabase
-        .from('letters')
-        .select('id')
-        .limit(1)
-        .single();
+    try {
+        const [letters]: any = await pool.query('SELECT id FROM letters LIMIT 1');
 
-    if (fError || !oneLetter) {
-        console.log('No letters to test with or fetch error:', fError?.message);
-        return;
-    }
+        if (!letters || letters.length === 0) {
+            console.log('No letters to test with.');
+            return;
+        }
 
-    console.log(`Attempting to delete letter ${oneLetter.id}...`);
-    const { error: dError } = await supabase
-        .from('letters')
-        .delete()
-        .eq('id', oneLetter.id);
+        const oneLetter = letters[0];
+        console.log(`Attempting to delete letter ${oneLetter.id}...`);
 
-    if (dError) {
-        console.log('❌ Deletion failed:', dError.message);
-    } else {
-        // Double check count
-        const { count, error: cError } = await supabase
-            .from('letters')
-            .select('*', { count: 'exact', head: true });
-        console.log(`✅ Deletion command returned no error. Remaining count: ${count}`);
+        const [result]: any = await pool.query('DELETE FROM letters WHERE id = ?', [oneLetter.id]);
+
+        if (result.affectedRows > 0) {
+            console.log('✅ Deletion succeeded');
+        } else {
+            console.log('❌ Deletion failed or no rows affected');
+        }
+
+        const [countResult]: any = await pool.query('SELECT COUNT(*) as count FROM letters');
+        console.log(`📊 Remaining count: ${countResult[0].count}`);
+    } finally {
+        await pool.end();
     }
 }
 

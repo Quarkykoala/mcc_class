@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { supabase } from './lib/supabase';
+import { auth } from './lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LetterWorkspace } from './components/LetterWorkspace';
 import { DemoDebugMenu } from './components/DemoDebugMenu';
+import { Dashboard } from './components/Dashboard';
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:3000/api');
 const isVerificationRoute = typeof window !== 'undefined' && window.location.pathname.includes('/verify/');
 const WORKSPACE_CONTEXT = 'COMPANY';
+const PAGE_SIZE = 50;
 
 type Letter = any;
 type ApproverOption = {
@@ -41,11 +43,15 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<Letter[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [verificationData, setVerificationData] = useState<any>(null);
+  const [view, setView] = useState<'workspace' | 'dashboard'>('workspace');
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -56,8 +62,7 @@ export default function App() {
   }, []);
 
   const authedFetch = async (path: string, options: RequestInit = {}) => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token ?? session?.access_token;
+    const token = auth.getAccessToken() ?? session?.access_token;
     return fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
@@ -110,7 +115,7 @@ export default function App() {
   const refresh = async () => {
     const contextQuery = encodeURIComponent(WORKSPACE_CONTEXT);
     const [lettersResult, tagsResult, logsResult, approversResult, pendingResult] = await Promise.allSettled([
-      authedFetch(`/letters?context=${contextQuery}`),
+      authedFetch(`/letters?context=${contextQuery}&page=1&limit=${PAGE_SIZE}`),
       authedFetch(`/tags?context=${contextQuery}`),
       authedFetch('/audit-logs'),
       authedFetch('/approvers'),
@@ -123,6 +128,9 @@ export default function App() {
       const lettersJson = await lettersResult.value.json();
       nextLetters = parseCollection<Letter>(lettersJson);
       setLetters(nextLetters);
+      const meta = (lettersJson && typeof lettersJson === 'object') ? (lettersJson as any).meta : null;
+      setPage(1);
+      setHasMore(Boolean(meta?.hasMore));
     } else {
       console.error('Failed to refresh letters list', lettersResult);
       setPendingApprovals([]);
@@ -183,6 +191,27 @@ export default function App() {
     if (session && !isVerificationRoute) refresh();
   }, [session]);
 
+  const loadMoreLetters = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const contextQuery = encodeURIComponent(WORKSPACE_CONTEXT);
+      const nextPage = page + 1;
+      const res = await authedFetch(`/letters?context=${contextQuery}&page=${nextPage}&limit=${PAGE_SIZE}`);
+      if (!res.ok) throw new Error('Failed to load more letters');
+      const payload = await res.json();
+      const newLetters = parseCollection<Letter>(payload);
+      setLetters((prev) => [...prev, ...newLetters]);
+      const meta = payload?.meta;
+      setPage(nextPage);
+      setHasMore(Boolean(meta?.hasMore));
+    } catch (err) {
+      console.error('Failed to load more letters', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   if (isVerificationRoute) {
     return <pre className="p-6 text-sm">{JSON.stringify(verificationData, null, 2)}</pre>;
   }
@@ -192,22 +221,34 @@ export default function App() {
       <div className="mx-auto mt-16 max-w-md space-y-3 p-4">
         <Input placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
         <Input placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-        <Button onClick={() => supabase.auth.signInWithPassword({ email, password })}>Sign in</Button>
+        <Button onClick={async () => {
+          const result = await auth.signInWithPassword({ email, password });
+          if (result.error) alert(result.error);
+        }}>Sign in</Button>
       </div>
     );
   }
 
   return (
     <main className="p-4">
-      <div className="mb-4 flex justify-end">
-        <Button variant="outline" onClick={() => supabase.auth.signOut()}>Sign out</Button>
+      <div className="mb-4 flex justify-between items-center">
+        <Button variant="outline" onClick={() => auth.signOut()}>Sign out</Button>
+        <Button variant="outline" onClick={() => setView(view === 'workspace' ? 'dashboard' : 'workspace')}>
+          {view === 'workspace' ? 'Go to Dashboard' : 'Go to Workspace'}
+        </Button>
       </div>
+      {view === 'dashboard' ? (
+        <Dashboard />
+      ) : (
       <LetterWorkspace
         letters={letters}
         tags={tags}
         auditLogs={auditLogs}
         approvers={approvers}
         pendingApprovals={pendingApprovals}
+        hasMore={hasMore}
+        onLoadMore={loadMoreLetters}
+        loadingMore={loadingMore}
         onCreateOrUpdate={async (payload) => {
           await fetchOrThrow('/letters', { method: 'POST', body: JSON.stringify({ ...payload, context: payload?.context ?? WORKSPACE_CONTEXT }) });
           await refresh();
@@ -231,7 +272,8 @@ export default function App() {
           await refresh();
         }}
         onFetchLetter={async (id) => { const res = await fetchOrThrow(`/letters/${id}`); return res.json(); }}
-      />
+        />
+        )}
       <DemoDebugMenu onRefresh={refresh} />
     </main>
   );

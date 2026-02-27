@@ -1,37 +1,40 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-const path = require('path');
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config({ path: path.join(__dirname, '../apps/api/.env') });
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const config = {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'mcc_letters'
+};
 
 async function listRecords() {
+    const pool = mysql.createPool(config);
     console.log('--- Current Letters ---');
-    // Try a simpler select to avoid column errors
-    const { data: letters, error } = await supabase
-        .from('letters')
-        .select('id, status, created_at')
-        .order('created_at', { ascending: false });
 
-    if (error) {
-        console.error('Error:', error.message);
-        return;
+    try {
+        const [letters] = await pool.query(
+            'SELECT id, status, created_at FROM letters ORDER BY created_at DESC'
+        );
+
+        if (letters.length === 0) {
+            console.log('No letters found.');
+            return;
+        }
+
+        letters.forEach((l: any, i: number) => {
+            console.log(`${i + 1}: [${l.id}] (${l.status}) - ${l.created_at}`);
+        });
+
+        console.log('\n--- Total Records ---');
+        console.log(`Count: ${letters.length}`);
+    } finally {
+        await pool.end();
     }
-
-    if (letters.length === 0) {
-        console.log('No letters found.');
-        return;
-    }
-
-    letters.forEach((l, i) => {
-        console.log(`${i + 1}: [${l.id}] (${l.status}) - ${l.created_at}`);
-    });
-
-    console.log('\n--- Total Records ---');
-    console.log(`Count: ${letters.length}`);
 }
 
 listRecords();

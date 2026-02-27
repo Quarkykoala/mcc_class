@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { SupabaseClient, createClient } from '@supabase/supabase-js';
+import { verifyToken } from './auth-routes';
+import { query } from './db';
 
-// Extend Express Request type
 declare global {
     namespace Express {
         interface Request {
@@ -9,12 +9,11 @@ declare global {
                 id: string;
                 roles: string[];
             };
-            supabase: SupabaseClient;
         }
     }
 }
 
-export const authMiddleware = (supabaseUrl: string, supabaseKey: string) => async (
+export const authMiddleware = () => async (
     req: Request,
     res: Response,
     next: NextFunction
@@ -25,10 +24,6 @@ export const authMiddleware = (supabaseUrl: string, supabaseKey: string) => asyn
             id: '00000000-0000-0000-0000-000000000001',
             roles: ['ADMIN', 'APPROVER', 'ISSUER']
         };
-        // For demo mode, we just use a fresh client with the key (no user token)
-        // Or we could mock it. But let's just create a base client.
-        const demoClient = createClient(supabaseUrl, supabaseKey);
-        req.supabase = demoClient;
         return next();
     }
 
@@ -38,37 +33,32 @@ export const authMiddleware = (supabaseUrl: string, supabaseKey: string) => asyn
         return res.status(401).json({ error: 'Missing Authorization header' });
     }
 
-    // Create a scoped client for this request (acts as the user)
-    const scopedClient = createClient(supabaseUrl, supabaseKey, {
-        global: {
-            headers: { Authorization: authHeader }
+    try {
+        const token = authHeader.replace('Bearer ', '');
+        const payload = verifyToken(token);
+
+        const userId = payload.sub;
+
+        // Verify user exists
+        const users = await query<{ id: string }>('SELECT id FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(401).json({ error: 'User not found' });
         }
-    });
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await scopedClient.auth.getUser(token);
+        // Fetch roles
+        const roles = await query<{ role: string }>(
+            'SELECT role FROM user_roles WHERE user_id = ?',
+            [userId]
+        );
 
-    if (authError || !user) {
-        console.error('Auth verification failed:', authError);
+        req.user = {
+            id: userId,
+            roles: roles.map((r) => r.role)
+        };
+
+        next();
+    } catch (err) {
+        console.error('Auth verification failed:', err);
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
-
-    // Fetch roles using the scoped client (relies on RLS 'Users can read own roles')
-    const { data: roles, error: rolesError } = await scopedClient
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id);
-
-    if (rolesError) {
-        console.error('Role fetch error:', rolesError);
-        return res.status(500).json({ error: 'Failed to fetch user permissions' });
-    }
-
-    req.user = {
-        id: user.id,
-        roles: roles ? roles.map((r: any) => r.role) : []
-    };
-    req.supabase = scopedClient;
-
-    next();
 };

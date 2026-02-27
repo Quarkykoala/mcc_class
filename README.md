@@ -29,16 +29,16 @@ Only valid stage transitions are allowed by API checks.
 
 ## Project Structure
 
-- `apps/api` - Express + TypeScript API (Supabase-backed)
+- `apps/api` - Express + TypeScript API (MySQL-backed)
 - `apps/web` - React + Vite frontend
-- `supabase/migrations` - SQL migrations
+- `mysql/schema.sql` - MySQL schema
 - `scripts` - smoke and helper scripts
 
 ## Prerequisites
 
 - Node.js 18+
 - npm
-- Supabase project (URL + keys)
+- MySQL 8.0+ server
 
 ## Environment Setup
 
@@ -47,8 +47,12 @@ Only valid stage transitions are allowed by API checks.
 Create `apps/api/.env`:
 
 ```env
-SUPABASE_URL=<your-supabase-url>
-SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key-or-anon-key>
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=
+MYSQL_DATABASE=mcc
+JWT_SECRET=<your-jwt-secret>
 PORT=3000
 CLIENT_URL=http://localhost:5173
 DEMO_MODE=true
@@ -62,8 +66,6 @@ Create `apps/web/.env`:
 
 ```env
 VITE_API_URL=http://localhost:3000/api
-VITE_SUPABASE_URL=<your-supabase-url>
-VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
 ## Install and Run
@@ -76,17 +78,15 @@ npm run dev
 - Web: `http://localhost:5173`
 - API: `http://localhost:3000`
 
-## Database Migrations
+## Database Setup
 
-Apply migrations in `supabase/migrations` to keep schema aligned with API expectations.
+Apply the MySQL schema from `mysql/schema.sql`:
 
-Important recent migration:
+```bash
+mysql -u root -p mcc < mysql/schema.sql
+```
 
-- `supabase/migrations/20260304_add_letters_title_and_job_reference.sql`
-  - Adds `letters.title`
-  - Adds `letters.job_reference`
-
-If your DB is partially migrated, API includes compatibility fallbacks for several legacy schema gaps, but full migration is recommended.
+This creates all tables, indexes, and seed data needed for the application.
 
 ## Quality Gates
 

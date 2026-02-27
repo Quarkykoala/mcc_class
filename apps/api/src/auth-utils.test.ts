@@ -1,106 +1,60 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { verifyApproverRole } from './auth-utils';
-import { SupabaseClient } from '@supabase/supabase-js';
+
+const mockQuery = vi.fn();
+
+vi.mock('./db', () => ({
+  query: (...args: unknown[]) => mockQuery(...args),
+  queryOne: vi.fn(),
+  execute: vi.fn(),
+}));
 
 describe('verifyApproverRole', () => {
-  it('returns true if user has APPROVER role', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ role: 'APPROVER' }],
-        error: null
-      })
-    } as unknown as SupabaseClient;
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+  it('returns true if user has APPROVER role', async () => {
+    mockQuery.mockResolvedValue([{ role: 'APPROVER' }]);
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(true);
   });
 
   it('returns true if user has ADMIN role', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ role: 'ADMIN' }],
-        error: null
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+    mockQuery.mockResolvedValue([{ role: 'ADMIN' }]);
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(true);
   });
 
   it('returns false if user has neither role', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ role: 'USER' }],
-        error: null
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+    mockQuery.mockResolvedValue([{ role: 'USER' }]);
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(false);
   });
 
   it('returns false if user has no roles', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [],
-        error: null
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+    mockQuery.mockResolvedValue([]);
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(false);
   });
 
-  it('returns false if supabase returns error', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: null,
-        error: { message: 'DB Error' }
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+  it('returns false if query throws', async () => {
+    mockQuery.mockRejectedValue(new Error('DB Error'));
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(false);
   });
 
-  it('logs error if supabase returns error', async () => {
+  it('logs error if query throws', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: null,
-        error: { message: 'DB Error' }
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, 'user-123');
+    mockQuery.mockRejectedValue(new Error('DB Error'));
+    const result = await verifyApproverRole('user-123');
     expect(result).toBe(false);
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Error fetching user roles'), { message: 'DB Error' });
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Error fetching user roles'), expect.any(Error));
     consoleSpy.mockRestore();
   });
 
-    it('returns false if userId is missing', async () => {
-    const mockSupabase = {
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-         data: [{ role: 'APPROVER' }],
-        error: null
-      })
-    } as unknown as SupabaseClient;
-
-    const result = await verifyApproverRole(mockSupabase, '');
+  it('returns false if userId is missing', async () => {
+    const result = await verifyApproverRole('');
     expect(result).toBe(false);
   });
 });

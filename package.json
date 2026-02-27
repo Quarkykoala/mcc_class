@@ -10,7 +10,11 @@
         "build": "npm run build -w @mcc/api && npm run build -w web",
         "lint": "npm run lint -w @mcc/api && npm run lint -w web",
         "test": "npm run test -w @mcc/api",
-        "test:web": "npm run test:e2e -w web"
+        "test:web": "npm run test:e2e -w web",
+        "setup": "npm install && npm run db:init",
+        "db:init": "tsx apps/api/src/init-db.ts",
+        "db:smoke": "tsx scripts/smoke-test.js",
+        "cleanup": "tsx scripts/cleanup_demo_data.js"
     },
     "keywords": [],
     "author": "",
@@ -19,6 +23,7 @@
     "devDependencies": {
         "@types/supertest": "^6.0.3",
         "concurrently": "^9.2.1",
-        "supertest": "^7.2.2"
+        "supertest": "^7.2.2",
+        "tsx": "^4.7.0"
     }
 }
