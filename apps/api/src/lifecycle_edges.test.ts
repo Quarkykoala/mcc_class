@@ -18,7 +18,7 @@ vi.mock('./db', () => ({
 
 vi.mock('./auth-middleware', () => ({
   authMiddleware: () => (req: any, _res: any, next: any) => {
-    req.user = { id: 'user-1', roles: ['APPROVER'] };
+    req.user = { id: 'user-1', roles: ['USER', 'ISSUER'] };
     next();
   }
 }));

@@ -36,15 +36,22 @@ describe('GET /api/letters/:id', () => {
   });
 
   it('fetches a single letter with content', async () => {
-    // queryOne for letter detail
+    // router.get('/letters/:id') calls queryOne for auth check:
     mockQueryOne.mockResolvedValueOnce({
       id: 'letter-detail-1', content: 'Full content of the letter', status: 'DRAFT',
       created_at: new Date().toISOString(), created_by: 'user-123',
       department_id: 'dept-1', dept_name: 'HR'
     });
-    // getUserDepartmentIds (since not ADMIN)
+
+    // getLetterDetail calls queryOne AGAIN for the actual fetch:
+    mockQueryOne.mockResolvedValueOnce({
+      id: 'letter-detail-1', content: 'Full content of the letter', status: 'DRAFT',
+      created_at: new Date().toISOString(), created_by: 'user-123',
+      department_id: 'dept-1', dept_name: 'HR'
+    });
+
+    // loadLetterRelations calls query twice for tags and assignments
     mockQuery
-      .mockResolvedValueOnce([{ department_id: 'dept-1' }]) // user_departments
       .mockResolvedValueOnce([]) // tags
       .mockResolvedValueOnce([]); // assignments
 
