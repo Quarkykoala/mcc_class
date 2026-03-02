@@ -174,16 +174,14 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
             const drafts = letters.filter((l: any) => l.status === 'DRAFT');
             const submitted = letters.filter((l: any) => l.status === 'SUBMITTED');
 
-            for (const l of drafts) {
+            await Promise.all(drafts.map(async (l: any) => {
                 await runAction(`/letters/${l.id}/submit`);
                 await runAction(`/letters/${l.id}/approve`);
-                await new Promise(r => setTimeout(r, 200));
-            }
+            }));
 
-            for (const l of submitted) {
-                await runAction(`/letters/${l.id}/approve`);
-                await new Promise(r => setTimeout(r, 200));
-            }
+            await Promise.all(submitted.map((l: any) =>
+                runAction(`/letters/${l.id}/approve`)
+            ));
 
             await onRefresh();
             setIsOpen(false);
@@ -209,10 +207,9 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
             const letters = Array.isArray(data) ? data : (data.data || []);
             const approved = letters.filter((l: any) => l.status === 'APPROVED');
 
-            for (const l of approved) {
-                await runAction(`/letters/${l.id}/issue`, { channel: 'PRINT', printer_id: 'DEMO' });
-                await new Promise(r => setTimeout(r, 200));
-            }
+            await Promise.all(approved.map((l: any) =>
+                runAction(`/letters/${l.id}/issue`, { channel: 'PRINT', printer_id: 'DEMO' })
+            ));
             await onRefresh();
             setIsOpen(false);
             alert('Approved letters issued.');
