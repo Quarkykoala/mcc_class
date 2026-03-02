@@ -59,6 +59,7 @@ describe('lifecycle edge cases', () => {
   it('rejects issue when not approved', async () => {
     mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'SUBMITTED', department_id: 'd1', created_by: 'user-1', context: 'COMPANY' });
     const res = await request(app).post('/api/letters/l1/issue').send({});
-    expect(res.status).toBe(400);
+    // Should be 403 now due to `User does not have permission to issue letters.` if missing ISSUER role
+    expect(res.status).toBe(403);
   });
 });

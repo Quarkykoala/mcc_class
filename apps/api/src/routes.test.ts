@@ -56,7 +56,7 @@ describe('approval routing flows', () => {
 
   it('supports create endpoint with title/job_reference', async () => {
     mockQueryOne
-      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'dept-id' })
       .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
     const res = await request(app).post('/api/letters').send({
       context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []

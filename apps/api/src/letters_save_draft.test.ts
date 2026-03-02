@@ -43,11 +43,12 @@ describe('POST /api/letters (Save Draft)', () => {
 
   it('updates a draft and persists selected tags', async () => {
     mockQueryOne
-      .mockResolvedValueOnce({ id: 'l1', context: 'COMPANY', department_id: 'd1', status: 'DRAFT', created_by: 'user-1' })
-      .mockResolvedValueOnce({ id: 'l1', content: 'updated content', status: 'DRAFT' });
+      .mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', context: 'COMPANY', department_id: 'd1', status: 'DRAFT', created_by: 'user-1' })
+      .mockResolvedValueOnce({ id: 'd1' }) // Department fetched here
+      .mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', content: 'updated content', status: 'DRAFT' });
 
     const res = await request(app).post('/api/letters').send({
-      id: 'l1', context: 'COMPANY', content: 'updated content', tag_ids: ['tag-1', 'tag-2']
+      id: '11111111-1111-1111-1111-111111111111', context: 'COMPANY', content: 'updated content', tag_ids: ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222']
     });
 
     expect(res.status).toBe(200);
