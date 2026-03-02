@@ -24,7 +24,7 @@ vi.mock('./auth-middleware', () => ({
 }));
 
 vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+  const { Router } = require('express') as any; // eslint-disable-line @typescript-eslint/no-require-imports
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -56,7 +56,7 @@ describe('approval routing flows', () => {
 
   it('supports create endpoint with title/job_reference', async () => {
     mockQueryOne
-      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'dept-id' })
       .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
     const res = await request(app).post('/api/letters').send({
       context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []

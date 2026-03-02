@@ -23,7 +23,7 @@ vi.mock('./auth-middleware', () => ({
 }));
 
 vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+  const { Router } = require('express') as any; // eslint-disable-line @typescript-eslint/no-require-imports
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -37,12 +37,14 @@ describe('GET /api/letters/:id', () => {
   });
 
   it('fetches a single letter with content', async () => {
-    // queryOne for letter detail
-    mockQueryOne.mockResolvedValueOnce({
+    const letter = {
       id: 'letter-detail-1', content: 'Full content of the letter', status: 'DRAFT',
       created_at: new Date().toISOString(), created_by: 'user-123',
       department_id: 'dept-1', dept_name: 'HR'
-    });
+    };
+    // First queryOne inside route, then second queryOne inside getLetterDetail
+    mockQueryOne.mockResolvedValueOnce(letter).mockResolvedValueOnce(letter);
+
     // getUserDepartmentIds (since not ADMIN)
     mockQuery
       .mockResolvedValueOnce([{ department_id: 'dept-1' }]) // user_departments

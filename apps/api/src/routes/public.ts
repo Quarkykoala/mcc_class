@@ -11,6 +11,7 @@ export const publicRoutes = () => {
         try {
             const context = typeof req.query.context === 'string' ? req.query.context : null;
             const data = await getDepartments(context);
+            res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
             res.json(data);
         } catch (err: any) {
             res.status(500).json({ error: err.message });
@@ -21,6 +22,7 @@ export const publicRoutes = () => {
         try {
             const context = typeof req.query.context === 'string' ? req.query.context : null;
             const data = await getTags(context);
+            res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
             res.json(data);
         } catch (err: any) {
             res.status(500).json({ error: err.message });
