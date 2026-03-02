@@ -24,6 +24,7 @@ vi.mock('./auth-middleware', () => ({
 }));
 
 vi.mock('./auth-routes', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Router } = require('express');
   return { default: Router(), verifyToken: vi.fn() };
 });
