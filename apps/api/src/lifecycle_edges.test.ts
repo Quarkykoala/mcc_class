@@ -23,8 +23,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const express = await import('express'); const { Router } = express;
   return { default: Router(), verifyToken: vi.fn() };
 });
 
