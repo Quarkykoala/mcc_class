@@ -22,9 +22,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', async () => {
-  const { Router } = await import('express');
-  return { default: Router(), verifyToken: vi.fn() };
+vi.mock('./auth-routes', () => {
+  return { default: (req: any, res: any, next: any) => next(), verifyToken: vi.fn() };
 });
 
 vi.mock('./version-manager', () => ({
