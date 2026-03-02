@@ -1,7 +1,8 @@
 import { query } from '../db';
 import { TtlCache } from '../cache/ttl-cache';
 
-const cache = new TtlCache<any[]>(30_000);
+// Increase TTL to 5 minutes (300,000 ms) for static data
+const cache = new TtlCache<any[]>(300_000);
 
 const buildKey = (prefix: string, context?: string | null) => `${prefix}:${context ?? 'all'}`;
 
