@@ -18,14 +18,13 @@ vi.mock('./db', () => ({
 
 vi.mock('./auth-middleware', () => ({
   authMiddleware: () => (req: any, _res: any, next: any) => {
-    req.user = { id: 'user-1', roles: ['APPROVER'] };
+    req.user = { id: 'user-1', roles: ['USER', 'ISSUER'] };
     next();
   }
 }));
 
 vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
-  return { default: Router(), verifyToken: vi.fn() };
+  return { default: (req: any, res: any, next: any) => next(), verifyToken: vi.fn() };
 });
 
 vi.mock('./version-manager', () => ({

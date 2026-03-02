@@ -24,8 +24,7 @@ vi.mock('./auth-middleware', () => ({
 }));
 
 vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
-  return { default: Router(), verifyToken: vi.fn() };
+  return { default: (req: any, res: any, next: any) => next(), verifyToken: vi.fn() };
 });
 
 vi.mock('./version-manager', () => ({
@@ -57,9 +56,9 @@ describe('approval routing flows', () => {
   it('supports create endpoint with title/job_reference', async () => {
     mockQueryOne
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
+      .mockResolvedValueOnce({ id: '00000000-0000-0000-0000-000000000001', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
     const res = await request(app).post('/api/letters').send({
-      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []
+      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: [], department_id: '00000000-0000-0000-0000-000000000002'
     });
     expect(res.status).toBe(201);
   });
