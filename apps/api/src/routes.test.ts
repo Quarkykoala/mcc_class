@@ -23,8 +23,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const { Router } = await import('express');
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -59,7 +59,7 @@ describe('approval routing flows', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
     const res = await request(app).post('/api/letters').send({
-      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []
+      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: [], department_id: '123e4567-e89b-12d3-a456-426614174000'
     });
     expect(res.status).toBe(201);
   });

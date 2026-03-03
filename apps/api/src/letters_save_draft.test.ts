@@ -22,8 +22,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const { Router } = await import('express');
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -42,12 +42,13 @@ describe('POST /api/letters (Save Draft)', () => {
   });
 
   it('updates a draft and persists selected tags', async () => {
+    const validUuid = '123e4567-e89b-12d3-a456-426614174000';
     mockQueryOne
-      .mockResolvedValueOnce({ id: 'l1', context: 'COMPANY', department_id: 'd1', status: 'DRAFT', created_by: 'user-1' })
-      .mockResolvedValueOnce({ id: 'l1', content: 'updated content', status: 'DRAFT' });
+      .mockResolvedValueOnce({ id: validUuid, context: 'COMPANY', department_id: 'd1', status: 'DRAFT', created_by: 'user-1' })
+      .mockResolvedValueOnce({ id: validUuid, content: 'updated content', status: 'DRAFT' });
 
     const res = await request(app).post('/api/letters').send({
-      id: 'l1', context: 'COMPANY', content: 'updated content', tag_ids: ['tag-1', 'tag-2']
+      id: validUuid, context: 'COMPANY', content: 'updated content', tag_ids: ['tag-1', 'tag-2']
     });
 
     expect(res.status).toBe(200);

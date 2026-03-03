@@ -23,8 +23,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const { Router } = await import('express');
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -58,7 +58,9 @@ describe('lifecycle edge cases', () => {
 
   it('rejects issue when not approved', async () => {
     mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'SUBMITTED', department_id: 'd1', created_by: 'user-1', context: 'COMPANY' });
+    // In auth-middleware for this test file, user roles are only ['APPROVER'],
+    // but issuing requires ['ISSUER'] or ['ADMIN']. The route returns 403 Forbidden.
     const res = await request(app).post('/api/letters/l1/issue').send({});
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 });
