@@ -22,8 +22,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const express = await import('express'); const { Router } = express;
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -38,8 +38,8 @@ describe('GET /api/letters/:id', () => {
 
   it('fetches a single letter with content', async () => {
     // queryOne for letter detail
-    mockQueryOne.mockResolvedValueOnce({
-      id: 'letter-detail-1', content: 'Full content of the letter', status: 'DRAFT',
+    mockQueryOne.mockResolvedValueOnce({ id: '33333333-3333-3333-3333-333333333333', content: 'Full content of the letter', status: 'DRAFT', created_at: new Date().toISOString(), created_by: 'user-123', department_id: 'dept-1', dept_name: 'HR' }).mockResolvedValueOnce({
+      id: '33333333-3333-3333-3333-333333333333', content: 'Full content of the letter', status: 'DRAFT',
       created_at: new Date().toISOString(), created_by: 'user-123',
       department_id: 'dept-1', dept_name: 'HR'
     });
@@ -49,9 +49,9 @@ describe('GET /api/letters/:id', () => {
       .mockResolvedValueOnce([]) // tags
       .mockResolvedValueOnce([]); // assignments
 
-    const res = await request(app).get('/api/letters/letter-detail-1');
+    const res = await request(app).get('/api/letters/33333333-3333-3333-3333-333333333333');
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe('letter-detail-1');
+    expect(res.body.id).toBe('33333333-3333-3333-3333-333333333333');
     expect(res.body.content).toBe('Full content of the letter');
   });
 });

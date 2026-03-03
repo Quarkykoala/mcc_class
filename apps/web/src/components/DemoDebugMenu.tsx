@@ -132,11 +132,16 @@ export function DemoDebugMenu({ onRefresh }: DemoDebugMenuProps) {
             ];
             const createdIds: string[] = [];
 
-            for (const draft of drafts) {
-                const created = await withLabeledAction(
+            const creationPromises = drafts.map(draft =>
+                withLabeledAction(
                     `Draft "${draft.title}" creation`,
                     () => createDraft(departmentId, draft.title, `${draft.content} (Demo ${Date.now()})`)
-                );
+                )
+            );
+
+            const results = await Promise.all(creationPromises);
+
+            for (const created of results) {
                 if (created?.id) {
                     createdIds.push(created.id);
                 }

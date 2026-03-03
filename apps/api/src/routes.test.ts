@@ -23,8 +23,8 @@ vi.mock('./auth-middleware', () => ({
   }
 }));
 
-vi.mock('./auth-routes', () => {
-  const { Router } = require('express');
+vi.mock('./auth-routes', async () => {
+  const express = await import('express'); const { Router } = express;
   return { default: Router(), verifyToken: vi.fn() };
 });
 
@@ -43,13 +43,13 @@ describe('approval routing flows', () => {
   });
 
   it('supports routing endpoint', async () => {
-    mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'DRAFT', committee_id: null, created_by: 'approver-1', department_id: 'd1' });
+    mockQueryOne.mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', status: 'DRAFT', committee_id: null, created_by: 'approver-1', department_id: 'd1' });
     const res = await request(app).post('/api/letters/l1/routing').send({ tag_ids: [], cc_approver_ids: [] });
     expect(res.status).toBe(200);
   });
 
   it('supports submit endpoint', async () => {
-    mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'DRAFT', committee_id: 'c1', created_by: 'approver-1', department_id: 'd1' });
+    mockQueryOne.mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', status: 'DRAFT', committee_id: 'c1', created_by: 'approver-1', department_id: 'd1' });
     const res = await request(app).post('/api/letters/l1/submit').send({});
     expect(res.status).toBe(200);
   });
@@ -57,17 +57,17 @@ describe('approval routing flows', () => {
   it('supports create endpoint with title/job_reference', async () => {
     mockQueryOne
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
+      .mockResolvedValueOnce({ id: '22222222-2222-2222-2222-222222222222', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
     const res = await request(app).post('/api/letters').send({
-      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []
+      department_id: '44444444-4444-4444-4444-444444444444', context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []
     });
     expect(res.status).toBe(201);
   });
 
   it('supports GET /api/approvals/pending happy path', async () => {
     mockQuery
-      .mockResolvedValueOnce([{ letter_id: 'l1' }])
-      .mockResolvedValueOnce([{ id: 'l1', context: 'COMPANY', status: 'SUBMITTED', created_by: 'approver-1', department_id: 'd1', dept_name: 'HR', title: null, job_reference: null, letter_number: null, rejection_reason: null, approval_mode: 'ALL', created_at: new Date().toISOString(), updated_at: null }])
+      .mockResolvedValueOnce([{ letter_id: '11111111-1111-1111-1111-111111111111' }])
+      .mockResolvedValueOnce([{ id: '11111111-1111-1111-1111-111111111111', context: 'COMPANY', status: 'SUBMITTED', created_by: 'approver-1', department_id: 'd1', dept_name: 'HR', title: null, job_reference: null, letter_number: null, rejection_reason: null, approval_mode: 'ALL', created_at: new Date().toISOString(), updated_at: null }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     const res = await request(app).get('/api/approvals/pending');
