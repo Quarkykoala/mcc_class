@@ -18,7 +18,7 @@ vi.mock('./db', () => ({
 
 vi.mock('./auth-middleware', () => ({
   authMiddleware: () => (req: any, _res: any, next: any) => {
-    req.user = { id: 'user-1', roles: ['APPROVER'] };
+    req.user = { id: 'user-1', roles: ['APPROVER', 'ISSUER'] };
     next();
   }
 }));
@@ -43,21 +43,21 @@ describe('lifecycle edge cases', () => {
   });
 
   it('rejects submit without approvers', async () => {
-    mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'DRAFT', committee_id: null, created_by: 'user-1', department_id: 'd1' });
+    mockQueryOne.mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', status: 'DRAFT', committee_id: null, created_by: 'user-1', department_id: 'd1' });
     mockQuery.mockResolvedValueOnce([]); // no assignments
     const res = await request(app).post('/api/letters/l1/submit').send({});
     expect(res.status).toBe(400);
   });
 
   it('rejects approve when not assigned', async () => {
-    mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'SUBMITTED', committee_id: null, created_by: 'user-1', department_id: 'd1' });
+    mockQueryOne.mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', status: 'SUBMITTED', committee_id: null, created_by: 'user-1', department_id: 'd1' });
     mockQueryOne.mockResolvedValueOnce(null); // no assignment
     const res = await request(app).post('/api/letters/l1/approve').send({});
     expect(res.status).toBe(403);
   });
 
   it('rejects issue when not approved', async () => {
-    mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'SUBMITTED', department_id: 'd1', created_by: 'user-1', context: 'COMPANY' });
+    mockQueryOne.mockResolvedValueOnce({ id: '11111111-1111-1111-1111-111111111111', status: 'SUBMITTED', department_id: 'd1', created_by: 'user-1', context: 'COMPANY' });
     const res = await request(app).post('/api/letters/l1/issue').send({});
     expect(res.status).toBe(400);
   });
