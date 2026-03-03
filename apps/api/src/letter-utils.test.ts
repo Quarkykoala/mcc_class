@@ -5,18 +5,15 @@ import {
   generateIssuancePdf,
   normalizeTagIds
 } from './letter-utils';
-
 describe('normalizeTagIds', () => {
   it('filters non-strings, removes blanks, de-duplicates, and sorts', () => {
     const result = normalizeTagIds(['beta', '', 'alpha', 'beta', '  ', null, 42] as unknown[]);
     expect(result).toEqual(['alpha', 'beta']);
   });
-
   it('returns an empty array when input is not an array', () => {
     expect(normalizeTagIds('not-an-array')).toEqual([]);
   });
 });
-
 describe('buildContentHash', () => {
   it('produces a stable sha256 hex digest for the payload', () => {
     const hash = buildContentHash({
@@ -29,7 +26,6 @@ describe('buildContentHash', () => {
     });
     expect(hash).toBe('24c774facebb5311a69f31d2e1017df8cb07ce498f137226a47de905b9a7e7c4');
   });
-
   it('changes when content changes', () => {
     const base = {
       letterId: 'letter-123',
@@ -43,7 +39,6 @@ describe('buildContentHash', () => {
     expect(hashA).not.toBe(hashB);
   });
 });
-
 describe('buildVerificationResponse', () => {
   it('prefers the most recent committee approval and marks issuances', () => {
     const response = buildVerificationResponse({
@@ -65,7 +60,6 @@ describe('buildVerificationResponse', () => {
     expect(response.document_details.committee_id).toBe('committee-1');
     expect(response.document_details.issuance_exists).toBe(true);
   });
-
   it('marks revoked letters as revoked', () => {
     const response = buildVerificationResponse({
       version_number: 1,
@@ -77,7 +71,6 @@ describe('buildVerificationResponse', () => {
     expect(response.valid).toBe(false);
     expect(response.status).toBe('revoked');
   });
-
   it('records approver details when only direct approvals exist', () => {
     const response = buildVerificationResponse({
       version_number: 2,
@@ -91,7 +84,6 @@ describe('buildVerificationResponse', () => {
     expect(response.document_details.issuance_exists).toBe(false);
   });
 });
-
 describe('generateIssuancePdf', () => {
   it('returns a PDF data URI without requiring printer access', async () => {
     const pdf = await generateIssuancePdf({

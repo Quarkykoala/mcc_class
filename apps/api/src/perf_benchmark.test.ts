@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-
 const mockQuery = vi.fn();
 const mockQueryOne = vi.fn();
 const mockExecute = vi.fn();
-
 vi.mock('./db', () => ({
   query: (...args: unknown[]) => mockQuery(...args),
   queryOne: (...args: unknown[]) => mockQueryOne(...args),
@@ -14,27 +12,22 @@ vi.mock('./db', () => ({
   queryOneWithConn: vi.fn(),
   executeWithConn: vi.fn(),
 }));
-
 vi.mock('./auth-middleware', () => ({
   authMiddleware: () => (req: any, _res: any, next: any) => {
     req.user = { id: 'user-123', roles: ['USER'] };
     next();
   }
 }));
-
 vi.mock('./auth-routes', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Router } = require('express');
   return { default: Router(), verifyToken: vi.fn() };
 });
-
 import { app } from './app';
-
 describe('Performance Benchmark: GET /api/letters', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
   it('measures response size', async () => {
     // getUserDepartmentIds
     mockQuery.mockResolvedValueOnce([{ department_id: 'd1' }]);
@@ -51,7 +44,6 @@ describe('Performance Benchmark: GET /api/letters', () => {
     // tags + assignments
     mockQuery.mockResolvedValueOnce([]);
     mockQuery.mockResolvedValueOnce([]);
-
     const res = await request(app).get('/api/letters');
     expect(res.status).toBe(200);
     const size = JSON.stringify(res.body).length;
