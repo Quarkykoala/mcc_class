@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { resolve } from 'path';
 import authRoutes from './auth-routes';
 import { authMiddleware } from './auth-middleware';
 import { publicRoutes } from './routes/public';
@@ -19,7 +20,7 @@ import { attachmentsRoutes } from './routes/attachments';
 import { autoRoutingRoutes } from './routes/auto-routing';
 import { healthRoutes } from './routes/health';
 
-dotenv.config();
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const app = express();
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';

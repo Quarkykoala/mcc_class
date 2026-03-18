@@ -1,4 +1,5 @@
 import { query, queryOne } from '../db';
+import { pickExistingColumns } from '../db-schema';
 import { getUserDepartmentIds, loadLetterRelations, enrichLetter } from '../letters/letter-helpers';
 
 export async function listLetters(params: {
@@ -13,6 +14,15 @@ export async function listLetters(params: {
     userId?: string;
     isAdmin?: boolean;
 }) {
+    const optionalLetterColumns = await pickExistingColumns('letters', [
+        'title',
+        'job_reference',
+        'letter_number',
+        'rejection_reason',
+        'approval_mode',
+        'created_by',
+        'department_id',
+    ]);
     const {
         context,
         status,
@@ -52,8 +62,17 @@ export async function listLetters(params: {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const countResult = await queryOne<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM letters l ${where}`, qparams);
     const total = countResult?.cnt ?? 0;
+    const letterSelect = [
+        'l.id',
+        'l.context',
+        'l.status',
+        'l.created_at',
+        'l.updated_at',
+        ...optionalLetterColumns.map((column) => `l.${column}`),
+        'd.name as dept_name',
+    ].join(', ');
     const rows = await query<any>(
-        `SELECT l.id, l.context, l.status, l.created_at, l.updated_at, l.title, l.job_reference, l.letter_number, l.rejection_reason, l.approval_mode, l.created_by, l.department_id, d.name as dept_name
+        `SELECT ${letterSelect}
          FROM letters l LEFT JOIN departments d ON l.department_id = d.id ${where}
          ORDER BY l.created_at DESC LIMIT ? OFFSET ?`,
         [...qparams, limit, offset]
@@ -69,8 +88,20 @@ export async function listLetters(params: {
 }
 
 export async function getLetterDetail(id: string, userId: string, isAdmin: boolean) {
+    const optionalLetterColumns = await pickExistingColumns('letters', [
+        'committee_id',
+        'title',
+        'job_reference',
+        'letter_number',
+        'rejection_reason',
+        'approval_mode',
+        'source_ip',
+    ]);
     const letter = await queryOne<any>(
-        `SELECT l.*, d.name as dept_name FROM letters l LEFT JOIN departments d ON l.department_id = d.id WHERE l.id = ?`,
+        `SELECT l.id, l.context, l.department_id, l.status, l.content, l.created_by, l.created_at, l.updated_at${
+            optionalLetterColumns.length > 0 ? `, ${optionalLetterColumns.map((column) => `l.${column}`).join(', ')}` : ''
+        }, d.name as dept_name
+         FROM letters l LEFT JOIN departments d ON l.department_id = d.id WHERE l.id = ?`,
         [id]
     );
     if (!letter) return null;
@@ -81,6 +112,15 @@ export async function getLetterDetail(id: string, userId: string, isAdmin: boole
 }
 
 export async function listPendingApprovals(userId: string, isAdmin: boolean, context?: string | null) {
+    const optionalLetterColumns = await pickExistingColumns('letters', [
+        'title',
+        'job_reference',
+        'letter_number',
+        'rejection_reason',
+        'approval_mode',
+        'created_by',
+        'department_id',
+    ]);
     const pendingAssignments = await query<{ letter_id: string }>(
         'SELECT DISTINCT letter_id FROM letter_approver_assignments WHERE approver_id = ? AND decision = ?',
         [userId, 'PENDING']
@@ -88,7 +128,16 @@ export async function listPendingApprovals(userId: string, isAdmin: boolean, con
     const letterIds = pendingAssignments.map((a) => a.letter_id).filter(Boolean);
     if (letterIds.length === 0) return [];
     const placeholders = letterIds.map(() => '?').join(',');
-    let sql = `SELECT l.id, l.context, l.status, l.created_at, l.updated_at, l.title, l.job_reference, l.letter_number, l.rejection_reason, l.approval_mode, l.created_by, l.department_id, d.name as dept_name
+    const letterSelect = [
+        'l.id',
+        'l.context',
+        'l.status',
+        'l.created_at',
+        'l.updated_at',
+        ...optionalLetterColumns.map((column) => `l.${column}`),
+        'd.name as dept_name',
+    ].join(', ');
+    let sql = `SELECT ${letterSelect}
                FROM letters l LEFT JOIN departments d ON l.department_id = d.id
                WHERE l.id IN (${placeholders}) AND l.status = 'SUBMITTED'`;
     const params: unknown[] = [...letterIds];

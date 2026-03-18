@@ -273,8 +273,8 @@ export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
       return;
     }
 
-    const start = textarea.selectionStart ?? 0;
-    const end = textarea.selectionEnd ?? start;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
     const source = textarea.value;
     const { nextValue, selectionStart, selectionEnd } = transformer(source, start, end);
     onChange(sanitizeContent(nextValue));

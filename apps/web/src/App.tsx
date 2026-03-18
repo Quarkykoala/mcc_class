@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LetterWorkspace } from './components/LetterWorkspace';
 import { DemoDebugMenu } from './components/DemoDebugMenu';
 import { Dashboard } from './components/Dashboard';
+import { AppShell } from './components/AppShell';
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:3000/api');
 const isVerificationRoute = typeof window !== 'undefined' && window.location.pathname.includes('/verify/');
@@ -213,68 +214,105 @@ export default function App() {
   };
 
   if (isVerificationRoute) {
-    return <pre className="p-6 text-sm">{JSON.stringify(verificationData, null, 2)}</pre>;
+    return (
+      <div className="md-auth-page">
+        <div className="md-auth-card md-auth-card--wide">
+          <p className="md-eyebrow">Verification</p>
+          <h1 className="md-auth-card__title">Letter verification payload</h1>
+          <pre className="md-verification-pre">{JSON.stringify(verificationData, null, 2)}</pre>
+        </div>
+      </div>
+    );
   }
 
   if (!session) {
     return (
-      <div className="mx-auto mt-16 max-w-md space-y-3 p-4">
-        <Input placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <Input placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-        <Button onClick={async () => {
-          const result = await auth.signInWithPassword({ email, password });
-          if (result.error) alert(result.error);
-        }}>Sign in</Button>
+      <div className="md-auth-page">
+        <div className="md-auth-card">
+          <p className="md-eyebrow">Material dashboard theme</p>
+          <h1 className="md-auth-card__title">Sign in to the letter workflow</h1>
+          <p className="md-auth-card__subtitle">
+            This keeps the React app intact while applying the shared admin-shell language you wanted.
+          </p>
+          <div className="space-y-4">
+            <Input
+              className="md-auth-input"
+              placeholder="Email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <Input
+              className="md-auth-input"
+              placeholder="Password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <Button
+              className="md-auth-submit"
+              onClick={async () => {
+                const result = await auth.signInWithPassword({ email, password });
+                if (result.error) alert(result.error);
+              }}
+            >
+              <span className="material-icons text-base" aria-hidden="true">login</span>
+              Sign in
+            </Button>
+          </div>
+          <div className="md-auth-note">
+            <span className="material-icons text-base" aria-hidden="true">info</span>
+            <span>Demo login: `admin@mcc.local` / `admin123`</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <main className="p-4">
-      <div className="mb-4 flex justify-between items-center">
-        <Button variant="outline" onClick={() => auth.signOut()}>Sign out</Button>
-        <Button variant="outline" onClick={() => setView(view === 'workspace' ? 'dashboard' : 'workspace')}>
-          {view === 'workspace' ? 'Go to Dashboard' : 'Go to Workspace'}
-        </Button>
-      </div>
+    <AppShell
+      activeView={view}
+      onChangeView={setView}
+      onSignOut={() => auth.signOut()}
+      email={session?.user?.email}
+    >
       {view === 'dashboard' ? (
         <Dashboard />
       ) : (
-      <LetterWorkspace
-        letters={letters}
-        tags={tags}
-        auditLogs={auditLogs}
-        approvers={approvers}
-        pendingApprovals={pendingApprovals}
-        hasMore={hasMore}
-        onLoadMore={loadMoreLetters}
-        loadingMore={loadingMore}
-        onCreateOrUpdate={async (payload) => {
-          await fetchOrThrow('/letters', { method: 'POST', body: JSON.stringify({ ...payload, context: payload?.context ?? WORKSPACE_CONTEXT }) });
-          await refresh();
-        }}
-        onRoute={async (id, payload) => { await fetchOrThrow(`/letters/${id}/routing`, { method: 'POST', body: JSON.stringify(payload) }); await refresh(); }}
-        onSubmit={async (id) => { await fetchOrThrow(`/letters/${id}/submit`, { method: 'POST', body: JSON.stringify({}) }); await refresh(); }}
-        onApprove={async (id) => { await fetchOrThrow(`/letters/${id}/approve`, { method: 'POST', body: JSON.stringify({}) }); await refresh(); }}
-        onReject={async (id, reason) => { await fetchOrThrow(`/letters/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }); await refresh(); }}
-        onIssue={async (id, payload) => {
-          await fetchOrThrow(`/letters/${id}/issue`, {
-            method: 'POST',
-            body: JSON.stringify({ channel: 'PRINT', printer_id: 'DEMO', ...(payload || {}) })
-          });
-          await refresh();
-        }}
-        onPrint={async (id, payload) => {
-          await fetchOrThrow(`/letters/${id}/print`, {
-            method: 'POST',
-            body: JSON.stringify({ printer_id: 'DEMO', ...(payload || {}) })
-          });
-          await refresh();
-        }}
-        onFetchLetter={async (id) => { const res = await fetchOrThrow(`/letters/${id}`); return res.json(); }}
+        <LetterWorkspace
+          letters={letters}
+          tags={tags}
+          auditLogs={auditLogs}
+          approvers={approvers}
+          pendingApprovals={pendingApprovals}
+          hasMore={hasMore}
+          onLoadMore={loadMoreLetters}
+          loadingMore={loadingMore}
+          onCreateOrUpdate={async (payload) => {
+            await fetchOrThrow('/letters', { method: 'POST', body: JSON.stringify({ ...payload, context: payload?.context ?? WORKSPACE_CONTEXT }) });
+            await refresh();
+          }}
+          onRoute={async (id, payload) => { await fetchOrThrow(`/letters/${id}/routing`, { method: 'POST', body: JSON.stringify(payload) }); await refresh(); }}
+          onSubmit={async (id) => { await fetchOrThrow(`/letters/${id}/submit`, { method: 'POST', body: JSON.stringify({}) }); await refresh(); }}
+          onApprove={async (id) => { await fetchOrThrow(`/letters/${id}/approve`, { method: 'POST', body: JSON.stringify({}) }); await refresh(); }}
+          onReject={async (id, reason) => { await fetchOrThrow(`/letters/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }); await refresh(); }}
+          onIssue={async (id, payload) => {
+            await fetchOrThrow(`/letters/${id}/issue`, {
+              method: 'POST',
+              body: JSON.stringify({ channel: 'PRINT', printer_id: 'DEMO', ...(payload || {}) })
+            });
+            await refresh();
+          }}
+          onPrint={async (id, payload) => {
+            await fetchOrThrow(`/letters/${id}/print`, {
+              method: 'POST',
+              body: JSON.stringify({ printer_id: 'DEMO', ...(payload || {}) })
+            });
+            await refresh();
+          }}
+          onFetchLetter={async (id) => { const res = await fetchOrThrow(`/letters/${id}`); return res.json(); }}
         />
-        )}
+      )}
       <DemoDebugMenu onRefresh={refresh} />
-    </main>
+    </AppShell>
   );
 }

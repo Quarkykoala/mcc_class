@@ -232,13 +232,16 @@ export function Dashboard() {
   }, [session]);
 
   useEffect(() => {
-    if (session && filters) {
-      if (page !== 1) {
-        setPage(1);
-        return;
-      }
-      fetchLetters();
+    if (!session) {
+      return;
     }
+
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
+
+    fetchLetters();
   }, [filters, session, fetchLetters, page]);
 
   const handleBulkAction = async () => {
@@ -315,48 +318,51 @@ export function Dashboard() {
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      DRAFT: 'bg-zinc-700 text-zinc-200',
-      SUBMITTED: 'bg-yellow-900 text-yellow-200',
-      APPROVED: 'bg-green-900 text-green-200',
-      REJECTED: 'bg-red-900 text-red-200',
-      ISSUED: 'bg-blue-900 text-blue-200',
-      REVOKED: 'bg-purple-900 text-purple-200',
-      AES_WAITING: 'bg-orange-900 text-orange-200',
+      DRAFT: 'bg-slate-200 text-slate-700',
+      SUBMITTED: 'bg-amber-100 text-amber-800',
+      APPROVED: 'bg-emerald-100 text-emerald-800',
+      REJECTED: 'bg-rose-100 text-rose-800',
+      ISSUED: 'bg-sky-100 text-sky-800',
+      REVOKED: 'bg-violet-100 text-violet-800',
+      AES_WAITING: 'bg-orange-100 text-orange-800',
     };
-    return colors[status] || 'bg-zinc-700 text-zinc-200';
+    return colors[status] || 'bg-slate-200 text-slate-700';
   };
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="space-y-6">
       {/* Header */}
-      <header className="bg-slate-900 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <header className="rounded-[1.5rem] border border-slate-200 bg-white px-6 py-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-white">Letter Command Center</h1>
-            <span className="text-sm text-zinc-400">{session?.user?.email}</span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Tracking console</p>
+              <h1 className="text-2xl font-bold text-slate-800">Letter Command Center</h1>
+            </div>
+            <span className="hidden text-sm text-slate-500 md:inline">{session?.user?.email}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('letters')}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'letters' ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-slate-800'}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === 'letters' ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               Letters
             </button>
             <button
               onClick={() => { setActiveTab('analytics'); fetchAnalytics(); }}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'analytics' ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-slate-800'}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === 'analytics' ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               Analytics
             </button>
             <button
               onClick={() => { setActiveTab('routing'); fetchRoutingRules(); }}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'routing' ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-slate-800'}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === 'routing' ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               Auto-Routing
             </button>
             <button
               onClick={() => setActiveTab('attachments')}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'attachments' ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-slate-800'}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === 'attachments' ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               Attachments
             </button>
@@ -364,12 +370,12 @@ export function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="space-y-6">
         {/* Letters Tab */}
         {activeTab === 'letters' && (
           <div className="space-y-4">
             {/* Search & Filters Bar */}
-            <div className="bg-slate-900 rounded-lg shadow p-4 border border-slate-800">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex-1 min-w-[200px]">
                   <input
@@ -377,18 +383,18 @@ export function Dashboard() {
                     placeholder="Search title, job reference..."
                     value={filters.search}
                     onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-zinc-500"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 placeholder-slate-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
                   />
                 </div>
                 <button
                   onClick={() => setShowFilters(!showFilters)}
-                  className="px-4 py-2 text-zinc-300 border border-slate-700 rounded-lg hover:bg-slate-800"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-slate-600 hover:bg-slate-100"
                 >
                   {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </button>
                 <button
                   onClick={handleExport}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  className="rounded-xl bg-emerald-500 px-4 py-2 text-white hover:bg-emerald-600"
                 >
                   Export CSV
                 </button>
@@ -399,7 +405,7 @@ export function Dashboard() {
                   <select
                     value={filters.status}
                     onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                    className="px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
                   >
                     <option value="">All Statuses</option>
                     <option value="DRAFT">Draft</option>
@@ -412,7 +418,7 @@ export function Dashboard() {
                   <select
                     value={filters.department_id}
                     onChange={(e) => setFilters({ ...filters, department_id: e.target.value })}
-                    className="px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
                   >
                     <option value="">All Departments</option>
                     {departments.map((d) => (
@@ -423,14 +429,14 @@ export function Dashboard() {
                     type="date"
                     value={filters.dateFrom}
                     onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-                    className="px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
                     placeholder="From date"
                   />
                   <input
                     type="date"
                     value={filters.dateTo}
                     onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-                    className="px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
                     placeholder="To date"
                   />
                 </div>
@@ -439,13 +445,13 @@ export function Dashboard() {
 
             {/* Bulk Actions */}
             {selectedIds.size > 0 && (
-              <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-4 flex items-center justify-between">
-                <span className="text-blue-200 font-medium">{selectedIds.size} letters selected</span>
+              <div className="flex items-center justify-between rounded-[1.25rem] border border-sky-200 bg-sky-50 p-4">
+                <span className="font-medium text-sky-800">{selectedIds.size} letters selected</span>
                 <div className="flex gap-2">
                   <select
                     value={bulkAction}
                     onChange={(e) => setBulkAction(e.target.value)}
-                    className="px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
                   >
                     <option value="">Select action...</option>
                     <option value="submit">Submit for Approval</option>
@@ -455,13 +461,13 @@ export function Dashboard() {
                   <button
                     onClick={handleBulkAction}
                     disabled={!bulkAction}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="rounded-xl bg-violet-600 px-4 py-2 text-white hover:bg-violet-700 disabled:opacity-50"
                   >
                     Apply
                   </button>
                   <button
                     onClick={() => setSelectedIds(new Set())}
-                    className="px-4 py-2 text-zinc-300 hover:bg-slate-800 rounded-lg"
+                    className="rounded-xl px-4 py-2 text-slate-600 hover:bg-slate-100"
                   >
                     Clear
                   </button>
@@ -470,45 +476,45 @@ export function Dashboard() {
             )}
 
             {/* Letters Table */}
-            <div className="bg-slate-900 rounded-lg shadow overflow-hidden border border-slate-800">
-              <table className="min-w-full divide-y divide-slate-800">
-                <thead className="bg-slate-900">
+            <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
                   <tr>
                     <th className="px-6 py-3 text-left">
                       <input
                         type="checkbox"
                         checked={selectedIds.size === letters.length && letters.length > 0}
                         onChange={toggleSelectAll}
-                        className="rounded border-slate-600 bg-slate-800"
+                        className="rounded border-slate-300 bg-white"
                       />
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Letter #</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Title</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Job Ref</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Department</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Created</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Letter #</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Title</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Job Ref</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Department</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Created</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-slate-900 divide-y divide-slate-800">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">Loading...</td>
+                      <td colSpan={7} className="px-6 py-8 text-center text-slate-400">Loading...</td>
                     </tr>
                   ) : letters.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No letters found</td>
+                      <td colSpan={7} className="px-6 py-8 text-center text-slate-400">No letters found</td>
                     </tr>
                   ) : (
                     letters.map((letter) => (
-                      <tr key={letter.id} className={selectedIds.has(letter.id) ? 'bg-blue-900/20' : ''}>
+                      <tr key={letter.id} className={selectedIds.has(letter.id) ? 'bg-violet-50' : ''}>
                         <td className="px-6 py-4">
                           <input
                             type="checkbox"
                             checked={selectedIds.has(letter.id)}
                             onChange={() => toggleSelect(letter.id)}
-                            className="rounded border-slate-600 bg-slate-800"
+                            className="rounded border-slate-300 bg-white"
                           />
                         </td>
                         <td className="px-6 py-4">
@@ -516,23 +522,23 @@ export function Dashboard() {
                             {letter.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-zinc-300 font-mono">
+                        <td className="px-6 py-4 font-mono text-sm text-slate-500">
                           {letter.status === 'ISSUED' && letter.letter_number ? `#${letter.letter_number}` : '-'}
                         </td>
-                        <td className="px-6 py-4 text-sm text-white">
+                        <td className="px-6 py-4 text-sm text-slate-800">
                           {letter.title || (letter.status === 'ISSUED' ? 'Official Offer Letter' : (letter.status === 'DRAFT' ? 'Employment Contract Draft' : (letter.status === 'APPROVED' ? 'Senior Developer Promotion' : (letter.status === 'SUBMITTED' ? 'Quarterly Performance Review' : 'General Document'))))}
                         </td>
-                        <td className="px-6 py-4 text-sm text-zinc-400">
+                        <td className="px-6 py-4 text-sm text-slate-500">
                           {letter.job_reference || (letter.status === 'ISSUED' ? 'OFF-DEPT-77' : (letter.status === 'DRAFT' ? 'HR-2026-001' : (letter.status === 'APPROVED' ? 'PROM-SR-202' : (letter.status === 'SUBMITTED' ? 'OPS-REV-44' : 'REF-GEN-00'))))}
                         </td>
-                        <td className="px-6 py-4 text-sm text-zinc-400">{letter.departments?.name || '-'}</td>
-                        <td className="px-6 py-4 text-sm text-zinc-400">
+                        <td className="px-6 py-4 text-sm text-slate-500">{letter.departments?.name || '-'}</td>
+                        <td className="px-6 py-4 text-sm text-slate-500">
                           {new Date(letter.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4">
                           <button
                             onClick={() => setShowDeadlineModal(letter.id)}
-                            className="text-blue-400 hover:text-blue-300 text-sm"
+                            className="text-sm text-violet-600 hover:text-violet-700"
                           >
                             Set Deadline
                           </button>
@@ -544,20 +550,20 @@ export function Dashboard() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between text-sm text-zinc-500">
+            <div className="flex items-center justify-between text-sm text-slate-500">
               <span>Showing {letters.length} letters (page {page})</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1 rounded border border-slate-700 disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
                 >
                   Prev
                 </button>
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={!hasMore}
-                  className="px-3 py-1 rounded border border-slate-700 disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
                 >
                   Next
                 </button>
@@ -570,44 +576,44 @@ export function Dashboard() {
         {activeTab === 'analytics' && analytics && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-                <div className="text-3xl font-bold text-white">{analytics.total_letters}</div>
-                <div className="text-zinc-500">Total Letters</div>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="text-3xl font-bold text-slate-800">{analytics.total_letters}</div>
+                <div className="text-slate-500">Total Letters</div>
               </div>
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-                <div className="text-3xl font-bold text-green-400">{analytics.by_status?.APPROVED || 0}</div>
-                <div className="text-zinc-500">Approved</div>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="text-3xl font-bold text-green-400">{analytics.by_status.APPROVED || 0}</div>
+                <div className="text-slate-500">Approved</div>
               </div>
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-                <div className="text-3xl font-bold text-blue-400">{analytics.by_status?.ISSUED || 0}</div>
-                <div className="text-zinc-500">Issued</div>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="text-3xl font-bold text-blue-400">{analytics.by_status.ISSUED || 0}</div>
+                <div className="text-slate-500">Issued</div>
               </div>
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="text-3xl font-bold text-purple-400">{analytics.avg_approval_time_hours}h</div>
-                <div className="text-zinc-500">Avg Approval Time</div>
+                <div className="text-slate-500">Avg Approval Time</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-                <h3 className="text-lg font-semibold mb-4 text-white">By Status</h3>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="mb-4 text-lg font-semibold text-slate-800">By Status</h3>
                 <div className="space-y-2">
-                  {Object.entries(analytics.by_status || {}).map(([status, count]) => (
+                  {Object.entries(analytics.by_status).map(([status, count]) => (
                     <div key={status} className="flex justify-between items-center">
-                      <span className="text-zinc-400">{status}</span>
-                      <span className="font-medium text-white">{count as number}</span>
+                      <span className="text-slate-500">{status}</span>
+                      <span className="font-medium text-slate-800">{count as number}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-                <h3 className="text-lg font-semibold mb-4 text-white">By Department</h3>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="mb-4 text-lg font-semibold text-slate-800">By Department</h3>
                 <div className="space-y-2">
-                  {(analytics.by_department || []).map((dept) => (
+                  {analytics.by_department.map((dept) => (
                     <div key={dept.department_id} className="flex justify-between items-center">
-                      <span className="text-zinc-400">{dept.department_name}</span>
-                      <span className="font-medium text-white">{dept.count}</span>
+                      <span className="text-slate-500">{dept.department_name}</span>
+                      <span className="font-medium text-slate-800">{dept.count}</span>
                     </div>
                   ))}
                 </div>
@@ -619,33 +625,33 @@ export function Dashboard() {
         {/* Auto-Routing Tab */}
         {activeTab === 'routing' && (
           <div className="space-y-4">
-            <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-white">Auto-Routing Rules</h3>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <h3 className="text-lg font-semibold text-slate-800">Auto-Routing Rules</h3>
+                <button className="rounded-xl bg-violet-600 px-4 py-2 text-white hover:bg-violet-700">
                   Add Rule
                 </button>
               </div>
               {routingRules.length === 0 ? (
-                <p className="text-zinc-500 text-center py-8">No routing rules configured</p>
+                <p className="py-8 text-center text-slate-400">No routing rules configured</p>
               ) : (
-                <table className="min-w-full divide-y divide-slate-800">
-                  <thead className="bg-slate-900">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-zinc-400">Department</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-zinc-400">Tag</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-zinc-400">Approver</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-zinc-400">Status</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Department</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Tag</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Approver</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-100">
                     {routingRules.map((rule) => (
                       <tr>
-                        <td className="px-4 py-2 text-zinc-300">{rule.departments?.name || 'Any'}</td>
-                        <td className="px-4 py-2 text-zinc-300">{rule.tags?.name || 'Any'}</td>
-                        <td className="px-4 py-2 text-zinc-300">{rule.approver_id?.slice(0, 8)}...</td>
+                        <td className="px-4 py-2 text-slate-600">{rule.departments?.name || 'Any'}</td>
+                        <td className="px-4 py-2 text-slate-600">{rule.tags?.name || 'Any'}</td>
+                        <td className="px-4 py-2 text-slate-600">{rule.approver_id?.slice(0, 8)}...</td>
                         <td className="px-4 py-2">
-                          <span className={`px-2 py-1 text-xs rounded-full ${rule.enabled ? 'bg-green-900 text-green-200' : 'bg-zinc-700 text-zinc-300'}`}>
+                          <span className={`rounded-full px-2 py-1 text-xs ${rule.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
                             {rule.enabled ? 'Active' : 'Disabled'}
                           </span>
                         </td>
@@ -662,10 +668,10 @@ export function Dashboard() {
         {activeTab === 'attachments' && (
           <div className="space-y-4">
             {/* Letter Selector */}
-            <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold mb-4 text-white">Letter Attachments</h3>
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-lg font-semibold text-slate-800">Letter Attachments</h3>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <label className="mb-2 block text-sm font-medium text-slate-600">
                   Select a letter to manage attachments
                 </label>
                 <select
@@ -679,7 +685,7 @@ export function Dashboard() {
                       setLetterAttachments([]);
                     }
                   }}
-                  className="w-full px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
                 >
                   <option value="">Select a letter...</option>
                   {letters.map((letter) => (
@@ -693,9 +699,9 @@ export function Dashboard() {
 
             {/* Attachments Panel */}
             {selectedLetterForAttachments && (
-              <div className="bg-slate-900 rounded-lg shadow p-6 border border-slate-800">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
-                  <h4 className="font-medium text-white">Files</h4>
+                  <h4 className="font-medium text-slate-800">Files</h4>
                   <div>
                     <input
                       type="file"
@@ -707,7 +713,7 @@ export function Dashboard() {
                     />
                     <label
                       htmlFor="file-upload"
-                      className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer ${uploading ? 'opacity-50' : ''}`}
+                      className={`cursor-pointer rounded-xl bg-violet-600 px-4 py-2 text-white hover:bg-violet-700 ${uploading ? 'opacity-50' : ''}`}
                     >
                       {uploading ? 'Uploading...' : 'Upload Files'}
                     </label>
@@ -716,33 +722,33 @@ export function Dashboard() {
 
                 {/* Drop zone */}
                 <div
-                  className="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center mb-4 hover:border-slate-600 cursor-pointer"
+                  className="mb-4 cursor-pointer rounded-[1.25rem] border-2 border-dashed border-slate-300 p-6 text-center hover:border-violet-300"
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <p className="text-zinc-400">
+                  <p className="text-slate-500">
                     Click to select files or drag and drop
                   </p>
-                  <p className="text-sm text-zinc-500 mt-1">
+                  <p className="mt-1 text-sm text-slate-400">
                     PDF, DOC, DOCX, JPG, PNG (max 10MB)
                   </p>
                 </div>
 
                 {/* File List */}
                 {letterAttachments.length === 0 ? (
-                  <p className="text-zinc-500 text-center py-4">No attachments yet</p>
+                  <p className="py-4 text-center text-slate-400">No attachments yet</p>
                 ) : (
-                  <div className="divide-y divide-slate-800">
+                  <div className="divide-y divide-slate-100">
                     {letterAttachments.map((attachment) => (
                       <div key={attachment.id} className="py-3 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-slate-800 rounded flex items-center justify-center">
-                            <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                            <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-white">{attachment.file_name}</p>
-                            <p className="text-xs text-zinc-500">
+                            <p className="text-sm font-medium text-slate-800">{attachment.file_name}</p>
+                            <p className="text-xs text-slate-400">
                               {attachment.file_size ? `${Math.round(attachment.file_size / 1024)} KB` : ''}
                               {attachment.mime_type ? ` • ${attachment.mime_type}` : ''}
                             </p>
@@ -753,13 +759,13 @@ export function Dashboard() {
                             href={attachment.file_path}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-400 hover:text-blue-300 text-sm"
+                            className="text-sm text-violet-600 hover:text-violet-700"
                           >
                             View
                           </a>
                           <button
                             onClick={() => handleDeleteAttachment(attachment.id)}
-                            className="text-red-400 hover:text-red-300 text-sm"
+                            className="text-sm text-rose-600 hover:text-rose-700"
                           >
                             Delete
                           </button>
@@ -776,25 +782,25 @@ export function Dashboard() {
 
       {/* Deadline Modal */}
       {showDeadlineModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-slate-900 rounded-lg p-6 w-96 border border-slate-800">
-            <h3 className="text-lg font-semibold mb-4 text-white">Set Approval Deadline</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm">
+          <div className="w-96 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-slate-800">Set Approval Deadline</h3>
             <input
               type="datetime-local"
               value={deadlineDate}
               onChange={(e) => setDeadlineDate(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-700 bg-slate-800 text-white rounded-lg mb-4"
+              className="mb-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
             />
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => { setShowDeadlineModal(null); setDeadlineDate(''); }}
-                className="px-4 py-2 text-zinc-300 hover:bg-slate-800 rounded-lg"
+                className="rounded-xl px-4 py-2 text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleSetDeadline(showDeadlineModal)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="rounded-xl bg-violet-600 px-4 py-2 text-white hover:bg-violet-700"
               >
                 Set Deadline
               </button>

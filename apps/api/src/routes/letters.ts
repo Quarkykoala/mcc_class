@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildContentHash, normalizeTagIds, generateIssuancePdf } from '../letter-utils';
 import { handleLetterVersionUpdate } from '../version-manager';
 import { execute, query, queryOne, transaction, queryOneWithConn, queryWithConn, executeWithConn } from '../db';
+import { pickExistingColumns, tableHasColumn } from '../db-schema';
 import { canAccessLetter, normalizeUuidList } from '../letters/letter-helpers';
 import { listLetters, getLetterDetail } from '../repositories/letters';
 import { isAdmin, isApprover, isIssuer } from '../auth/roles';
@@ -76,8 +77,20 @@ export const lettersRoutes = () => {
             const { id } = req.params;
             const userId = req.user?.id || '';
             const admin = isAdmin(req);
+            const optionalLetterColumns = await pickExistingColumns('letters', [
+                'committee_id',
+                'title',
+                'job_reference',
+                'letter_number',
+                'rejection_reason',
+                'approval_mode',
+                'source_ip',
+            ]);
             const letter = await queryOne<any>(
-                `SELECT l.*, d.name as dept_name FROM letters l LEFT JOIN departments d ON l.department_id = d.id WHERE l.id = ?`,
+                `SELECT l.id, l.context, l.department_id, l.status, l.content, l.created_by, l.created_at, l.updated_at${
+                    optionalLetterColumns.length > 0 ? `, ${optionalLetterColumns.map((column) => `l.${column}`).join(', ')}` : ''
+                }, d.name as dept_name
+                 FROM letters l LEFT JOIN departments d ON l.department_id = d.id WHERE l.id = ?`,
                 [id]
             );
             if (!letter) return res.status(404).json({ error: 'Letter not found' });
@@ -110,6 +123,18 @@ export const lettersRoutes = () => {
             const deptId = department_id === '' ? null : department_id ?? null;
             const committeeId = committee_id === '' ? null : committee_id ?? null;
             const source_ip = req.ip || '0.0.0.0';
+            const letterColumns = await pickExistingColumns('letters', [
+                'committee_id',
+                'title',
+                'job_reference',
+                'source_ip',
+            ]);
+            const hasCommitteeColumn = letterColumns.includes('committee_id');
+            const hasTitleColumn = letterColumns.includes('title');
+            const hasJobReferenceColumn = letterColumns.includes('job_reference');
+            const hasSourceIpColumn = letterColumns.includes('source_ip');
+            const hasUpdatedAtColumn = await tableHasColumn('letters', 'updated_at');
+            const auditHasSourceIpColumn = await tableHasColumn('audit_logs', 'source_ip');
 
             if (id) {
                 const currentLetter = await queryOne<any>('SELECT id, context, department_id, status, created_by FROM letters WHERE id = ?', [id]);
@@ -118,10 +143,12 @@ export const lettersRoutes = () => {
                 const canEdit = currentLetter.created_by === userId || isAdmin(req);
                 if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this draft.' });
 
-                const setClauses: string[] = ['department_id = ?', 'content = ?', 'committee_id = ?', 'updated_at = NOW()'];
-                const updateParams: unknown[] = [deptId || currentLetter.department_id, content, committeeId];
-                if (hasTitle) { setClauses.push('title = ?'); updateParams.push(title ?? null); }
-                if (hasJobReference) { setClauses.push('job_reference = ?'); updateParams.push(job_reference ?? null); }
+                const setClauses: string[] = ['department_id = ?', 'content = ?'];
+                const updateParams: unknown[] = [deptId || currentLetter.department_id, content];
+                if (hasCommitteeColumn) { setClauses.push('committee_id = ?'); updateParams.push(committeeId); }
+                if (hasUpdatedAtColumn) { setClauses.push('updated_at = NOW()'); }
+                if (hasTitle && hasTitleColumn) { setClauses.push('title = ?'); updateParams.push(title ?? null); }
+                if (hasJobReference && hasJobReferenceColumn) { setClauses.push('job_reference = ?'); updateParams.push(job_reference ?? null); }
                 updateParams.push(id);
                 await execute(`UPDATE letters SET ${setClauses.join(', ')} WHERE id = ?`, updateParams);
 
@@ -132,10 +159,17 @@ export const lettersRoutes = () => {
                 }
 
                 const auditContext = context ?? currentLetter.context;
-                await execute(
-                    'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata, source_ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [uuidv4(), userId, 'UPDATE', 'LETTER', id, JSON.stringify({ context: auditContext, department_id: deptId, content_length: content.length, source_ip }), source_ip]
-                );
+                if (auditHasSourceIpColumn) {
+                    await execute(
+                        'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata, source_ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [uuidv4(), userId, 'UPDATE', 'LETTER', id, JSON.stringify({ context: auditContext, department_id: deptId, content_length: content.length, source_ip }), source_ip]
+                    );
+                } else {
+                    await execute(
+                        'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+                        [uuidv4(), userId, 'UPDATE', 'LETTER', id, JSON.stringify({ context: auditContext, department_id: deptId, content_length: content.length, source_ip })]
+                    );
+                }
 
                 await handleLetterVersionUpdate(id, content, userId);
                 const updated = await queryOne<any>('SELECT * FROM letters WHERE id = ?', [id]);
@@ -153,10 +187,12 @@ export const lettersRoutes = () => {
                     return res.status(400).json({ error: 'department_id is required (no default department found).' });
                 }
                 const newId = uuidv4();
-                const cols = ['id', 'context', 'department_id', 'content', 'committee_id', 'created_by', 'status', 'source_ip'];
-                const vals: unknown[] = [newId, createContext, resolvedDeptId, content, committeeId, userId, 'DRAFT', source_ip];
-                if (hasTitle) { cols.push('title'); vals.push(title ?? null); }
-                if (hasJobReference) { cols.push('job_reference'); vals.push(job_reference ?? null); }
+                const cols = ['id', 'context', 'department_id', 'content', 'created_by', 'status'];
+                const vals: unknown[] = [newId, createContext, resolvedDeptId, content, userId, 'DRAFT'];
+                if (hasCommitteeColumn) { cols.push('committee_id'); vals.push(committeeId); }
+                if (hasSourceIpColumn) { cols.push('source_ip'); vals.push(source_ip); }
+                if (hasTitle && hasTitleColumn) { cols.push('title'); vals.push(title ?? null); }
+                if (hasJobReference && hasJobReferenceColumn) { cols.push('job_reference'); vals.push(job_reference ?? null); }
                 const placeholders = cols.map(() => '?').join(', ');
                 await execute(`INSERT INTO letters (${cols.join(', ')}) VALUES (${placeholders})`, vals);
 
@@ -166,10 +202,17 @@ export const lettersRoutes = () => {
                 }
 
                 await handleLetterVersionUpdate(newId, content, userId);
-                await execute(
-                    'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata, source_ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [uuidv4(), userId, 'CREATE', 'LETTER', newId, JSON.stringify({ context: createContext, department_id: resolvedDeptId, tag_count: normalizedTags.length, source_ip }), source_ip]
-                );
+                if (auditHasSourceIpColumn) {
+                    await execute(
+                        'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata, source_ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [uuidv4(), userId, 'CREATE', 'LETTER', newId, JSON.stringify({ context: createContext, department_id: resolvedDeptId, tag_count: normalizedTags.length, source_ip }), source_ip]
+                    );
+                } else {
+                    await execute(
+                        'INSERT INTO audit_logs (id, actor_id, action, entity_type, entity_id, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+                        [uuidv4(), userId, 'CREATE', 'LETTER', newId, JSON.stringify({ context: createContext, department_id: resolvedDeptId, tag_count: normalizedTags.length, source_ip })]
+                    );
+                }
                 const created = await queryOne<any>('SELECT * FROM letters WHERE id = ?', [newId]);
                 res.status(201).json(created);
             }
@@ -603,7 +646,7 @@ export const lettersRoutes = () => {
             if (department_id) { conditions.push('l.department_id = ?'); params.push(String(department_id)); }
             if (!admin && userId) {
                 const deptIds = await query<{ department_id: string }>('SELECT department_id FROM user_departments WHERE user_id = ?', [userId]);
-                if (deptIds && deptIds.length > 0) {
+                if (deptIds.length > 0) {
                     const dph = deptIds.map(() => '?').join(',');
                     conditions.push(`(l.created_by = ? OR l.department_id IN (${dph}))`);
                     params.push(userId, ...deptIds.map((d) => d.department_id));

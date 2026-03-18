@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Slab:wght@400;700&family=Material+Icons&display=swap');
 @import "tailwindcss";
 
 @plugin "tailwindcss-animate";
@@ -37,26 +38,26 @@
 
 @layer base {
     :root {
-        --background: 224 71% 4%;
-        --foreground: 213 31% 91%;
-        --muted: 223 47% 11%;
-        --muted-foreground: 215.4 16.3% 56.9%;
-        --accent: 216 34% 17%;
-        --accent-foreground: 210 40% 98%;
-        --popover: 224 71% 4%;
-        --popover-foreground: 215 20.2% 65.1%;
-        --border: 216 34% 17%;
-        --input: 216 34% 17%;
-        --card: 224 71% 4%;
-        --card-foreground: 213 31% 91%;
-        --primary: 210 40% 98%;
-        --primary-foreground: 222.2 47.4% 1.2%;
-        --secondary: 222.2 47.4% 11.2%;
-        --secondary-foreground: 210 40% 98%;
-        --destructive: 0 63% 31%;
-        --destructive-foreground: 210 40% 98%;
-        --ring: 216 34% 17%;
-        --radius: 0.5rem;
+        --background: 210 20% 96%;
+        --foreground: 222 32% 17%;
+        --muted: 210 17% 92%;
+        --muted-foreground: 215 14% 41%;
+        --accent: 267 100% 96%;
+        --accent-foreground: 262 52% 37%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222 32% 17%;
+        --border: 214 18% 87%;
+        --input: 214 18% 87%;
+        --card: 0 0% 100%;
+        --card-foreground: 222 32% 17%;
+        --primary: 262 52% 47%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 20% 96%;
+        --secondary-foreground: 222 32% 17%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --ring: 262 52% 47%;
+        --radius: 1rem;
     }
 }
 
@@ -70,5 +71,226 @@
         background-color: var(--color-background);
         color: var(--color-foreground);
         font-feature-settings: "rlig" 1, "calt" 1;
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+        font-family: 'Roboto Slab', serif;
+    }
+}
+
+@layer components {
+    .md-shell {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        min-height: 100vh;
+        background:
+            radial-gradient(circle at top right, rgba(156, 39, 176, 0.12), transparent 30%),
+            linear-gradient(180deg, #f6f7fb 0%, #eef1f7 100%);
+    }
+
+    .md-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+        padding: 1.5rem;
+        color: white;
+        background:
+            linear-gradient(180deg, rgba(36, 38, 63, 0.95) 0%, rgba(58, 31, 91, 0.92) 100%),
+            radial-gradient(circle at top left, rgba(255, 255, 255, 0.2), transparent 35%);
+        box-shadow: 16px 0 40px rgba(15, 23, 42, 0.12);
+    }
+
+    .md-sidebar__brand {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .md-sidebar__brand-mark {
+        display: grid;
+        place-items: center;
+        width: 3rem;
+        height: 3rem;
+        border-radius: 1rem;
+        background: linear-gradient(135deg, #ff8a65, #8e24aa);
+        font-family: 'Roboto Slab', serif;
+        font-size: 1.25rem;
+        font-weight: 700;
+        box-shadow: 0 12px 24px rgba(142, 36, 170, 0.3);
+    }
+
+    .md-sidebar__brand h1,
+    .md-topbar__title,
+    .md-auth-card__title {
+        margin: 0;
+    }
+
+    .md-eyebrow {
+        margin: 0 0 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.72;
+    }
+
+    .md-sidebar__nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .md-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 0.9rem 1rem;
+        border: 0;
+        border-radius: 0.9rem;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.78);
+        text-align: left;
+        cursor: pointer;
+        transition: 180ms ease;
+    }
+
+    .md-nav-item:hover,
+    .md-nav-item.is-active {
+        color: white;
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+    }
+
+    .md-nav-item__icon {
+        font-size: 1.2rem;
+    }
+
+    .md-sidebar__footer {
+        margin-top: auto;
+        padding: 1rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .md-sidebar__user {
+        margin: 0 0 0.5rem;
+        font-weight: 500;
+    }
+
+    .md-sidebar__hint {
+        margin: 0;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .md-main-panel {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .md-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.5rem 2rem 1rem;
+    }
+
+    .md-content {
+        padding: 0 2rem 2rem;
+    }
+
+    .md-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0 2rem 1.5rem;
+        font-size: 0.85rem;
+        color: hsl(var(--muted-foreground));
+    }
+
+    .md-auth-page {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        background:
+            radial-gradient(circle at top left, rgba(156, 39, 176, 0.22), transparent 32%),
+            radial-gradient(circle at bottom right, rgba(255, 138, 101, 0.24), transparent 28%),
+            linear-gradient(180deg, #edf0f7 0%, #e6ebf5 100%);
+    }
+
+    .md-auth-card {
+        width: min(100%, 440px);
+        padding: 2rem;
+        border-radius: 1.5rem;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.16);
+    }
+
+    .md-auth-card--wide {
+        width: min(100%, 920px);
+    }
+
+    .md-auth-card__subtitle {
+        margin: 0.75rem 0 1.5rem;
+        color: hsl(var(--muted-foreground));
+        line-height: 1.6;
+    }
+
+    .md-auth-submit {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .md-auth-note {
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        margin-top: 1rem;
+        padding: 0.9rem 1rem;
+        border-radius: 1rem;
+        background: hsl(var(--accent));
+        color: hsl(var(--accent-foreground));
+        font-size: 0.9rem;
+    }
+
+    .md-verification-pre {
+        overflow: auto;
+        padding: 1rem;
+        border-radius: 1rem;
+        background: #111827;
+        color: #e5e7eb;
+        font-size: 0.86rem;
+    }
+}
+
+@media (max-width: 1024px) {
+    .md-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .md-sidebar {
+        gap: 1rem;
+    }
+
+    .md-topbar,
+    .md-content,
+    .md-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .md-footer {
+        flex-direction: column;
     }
 }

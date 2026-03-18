@@ -5,7 +5,7 @@ import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 
-dotenv.config();
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 async function initDatabase() {
     const host = process.env.MYSQL_HOST || 'localhost';
@@ -28,14 +28,14 @@ async function initDatabase() {
     try {
         // Create database if not exists
         console.log(`📦 Creating database '${database}' if not exists...`);
-        await connection.execute(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
         
         // Use the database
-        await connection.execute(`USE \`${database}\``);
+        await connection.query(`USE \`${database}\``);
 
         // Read and execute schema
         console.log('📋 Loading schema from mysql/schema.sql...');
-        const schemaPath = resolve(__dirname, '../../mysql/schema.sql');
+        const schemaPath = resolve(__dirname, '../../../mysql/schema.sql');
         const schema = readFileSync(schemaPath, 'utf-8');
 
         // Split by delimiter and execute each statement

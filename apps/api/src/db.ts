@@ -1,7 +1,8 @@
 import mysql, { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { resolve } from 'path';
 
-dotenv.config();
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const pool: Pool = mysql.createPool({
     host: process.env.MYSQL_HOST || 'localhost',
