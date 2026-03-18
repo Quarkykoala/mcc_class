@@ -40,6 +40,8 @@ describe('GET /api/letters Performance', () => {
     mockQuery.mockResolvedValueOnce([]); // departments
     mockQueryOne.mockResolvedValueOnce({ cnt: 0 }); // count
     mockQuery.mockResolvedValueOnce([]); // letters
+    mockQuery.mockResolvedValueOnce([]); // letter_tags
+    mockQuery.mockResolvedValueOnce([]); // letter_approver_assignments
     const res = await request(app).get('/api/letters');
     expect(res.status).toBe(200);
   });

@@ -39,9 +39,18 @@ describe('GET /api/letters/:id', () => {
   it('fetches a single letter with content', async () => {
     // queryOne for letter detail
     mockQueryOne.mockResolvedValueOnce({
-      id: 'letter-detail-1', content: 'Full content of the letter', status: 'DRAFT',
+      id: '11111111-1111-4111-8111-111111111111', content: 'Full content of the letter', status: 'DRAFT',
       created_at: new Date().toISOString(), created_by: 'user-123',
       department_id: 'dept-1', dept_name: 'HR'
+    });
+    mockQueryOne.mockResolvedValueOnce({
+      id: '11111111-1111-4111-8111-111111111111',
+      content: 'Full content of the letter',
+      status: 'DRAFT',
+      context: 'COMPANY',
+      created_by: 'user-123',
+      department_id: 'dept-1',
+      dept_name: 'HR',
     });
     // getUserDepartmentIds (since not ADMIN)
     mockQuery
@@ -51,7 +60,7 @@ describe('GET /api/letters/:id', () => {
 
     const res = await request(app).get('/api/letters/letter-detail-1');
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe('letter-detail-1');
+    expect(res.body.id).toBe('11111111-1111-4111-8111-111111111111');
     expect(res.body.content).toBe('Full content of the letter');
   });
 });

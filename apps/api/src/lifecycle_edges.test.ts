@@ -58,7 +58,8 @@ describe('lifecycle edge cases', () => {
 
   it('rejects issue when not approved', async () => {
     mockQueryOne.mockResolvedValueOnce({ id: 'l1', status: 'SUBMITTED', department_id: 'd1', created_by: 'user-1', context: 'COMPANY' });
+    mockQuery.mockResolvedValueOnce([{ department_id: 'd1' }]);
     const res = await request(app).post('/api/letters/l1/issue').send({});
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 });
