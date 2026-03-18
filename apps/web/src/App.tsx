@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { auth } from './lib/auth';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { LetterWorkspace } from './components/LetterWorkspace';
 import { DemoDebugMenu } from './components/DemoDebugMenu';
 import { Dashboard } from './components/Dashboard';
@@ -20,9 +18,7 @@ type ApproverOption = {
 };
 
 const parseCollection = <T,>(payload: unknown): T[] => {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
+  if (Array.isArray(payload)) return payload;
   if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
     return (payload as { data: T[] }).data;
   }
@@ -76,41 +72,15 @@ export default function App() {
 
   const fetchOrThrow = async (path: string, options: RequestInit = {}) => {
     const res = await authedFetch(path, options);
-    if (res.ok) {
-      return res;
-    }
-
+    if (res.ok) return res;
     let message = `Request failed (${res.status})`;
     try {
       const errorBody = await res.json();
-      if (errorBody?.error) {
-        message = String(errorBody.error);
-      }
-    } catch {
-      // keep default message
+      if (errorBody?.error) message = String(errorBody.error);
+    } catch (e) {
+      console.error('Failed to parse error body', e);
     }
-
     throw new Error(message);
-  };
-
-  const buildPendingApprovals = (lettersSnapshot: Letter[]) => {
-    const currentUserId = session?.user?.id;
-
-    return lettersSnapshot
-      .filter((letter) => {
-        if (letter?.status !== 'SUBMITTED') return false;
-        if (letter?.canApprove) return true;
-        if (!currentUserId) return false;
-        const assignments = Array.isArray(letter?.letter_approver_assignments) ? letter.letter_approver_assignments : [];
-        return assignments.some((assignment: any) =>
-          assignment?.approver_id === currentUserId && assignment?.decision === 'PENDING'
-        );
-      })
-      .sort((left, right) => {
-        const leftTime = new Date(left?.updated_at || left?.created_at || 0).getTime();
-        const rightTime = new Date(right?.updated_at || right?.created_at || 0).getTime();
-        return rightTime - leftTime;
-      });
   };
 
   const refresh = async () => {
@@ -132,59 +102,30 @@ export default function App() {
       const meta = (lettersJson && typeof lettersJson === 'object') ? (lettersJson as any).meta : null;
       setPage(1);
       setHasMore(Boolean(meta?.hasMore));
-    } else {
-      console.error('Failed to refresh letters list', lettersResult);
-      setPendingApprovals([]);
     }
 
     if (tagsResult.status === 'fulfilled' && tagsResult.value.ok) {
-      const tagsJson = await tagsResult.value.json();
-      setTags(parseCollection<any>(tagsJson));
-    } else {
-      console.error('Failed to refresh tags', tagsResult);
+      setTags(parseCollection<any>(await tagsResult.value.json()));
     }
 
     if (logsResult.status === 'fulfilled' && logsResult.value.ok) {
       const logsJson = await logsResult.value.json();
       setAuditLogs(Array.isArray(logsJson) ? logsJson : (logsJson.data || []));
-    } else {
-      console.error('Failed to refresh audit logs', logsResult);
     }
 
     if (approversResult.status === 'fulfilled' && approversResult.value.ok) {
-      const approversJson = await approversResult.value.json();
-      const apiApprovers = parseCollection<any>(approversJson)
+      const apiApprovers = parseCollection<any>(await approversResult.value.json())
         .filter((item) => typeof item?.id === 'string')
-        .map((item) => {
-          const roles = Array.isArray(item.roles) ? item.roles.map((role: unknown) => String(role)) : [];
-          return {
-            id: item.id,
-            roles,
-            label: typeof item.label === 'string' && item.label.length > 0 ? item.label : formatApproverLabel(item.id, roles)
-          } satisfies ApproverOption;
-        });
-
-      const assignedApproverIds = nextLetters.flatMap((letter) =>
-        (Array.isArray(letter?.letter_approver_assignments) ? letter.letter_approver_assignments : [])
-          .map((assignment: any) => assignment?.approver_id)
-          .filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
-      );
-      const missingAssigned = Array.from(new Set(assignedApproverIds))
-        .filter((id) => !apiApprovers.some((item) => item.id === id))
-        .map((id) => ({ id, roles: [] as string[], label: formatApproverLabel(id, []) }));
-
-      setApprovers([...apiApprovers, ...missingAssigned].sort((left, right) => left.label.localeCompare(right.label)));
-    } else {
-      console.error('Failed to refresh approvers', approversResult);
-      setApprovers([]);
+        .map((item) => ({
+          id: item.id,
+          roles: Array.isArray(item.roles) ? item.roles.map((role: unknown) => String(role)) : [],
+          label: typeof item.label === 'string' && item.label.length > 0 ? item.label : formatApproverLabel(item.id, item.roles || [])
+        } satisfies ApproverOption));
+      setApprovers(apiApprovers.sort((left, right) => left.label.localeCompare(right.label)));
     }
 
     if (pendingResult.status === 'fulfilled' && pendingResult.value.ok) {
-      const pendingJson = await pendingResult.value.json();
-      setPendingApprovals(parseCollection<Letter>(pendingJson));
-    } else {
-      // Fallback to derived pending queue from visible letters
-      setPendingApprovals(buildPendingApprovals(nextLetters));
+      setPendingApprovals(parseCollection<Letter>(await pendingResult.value.json()));
     }
   };
 
@@ -192,34 +133,22 @@ export default function App() {
     if (session && !isVerificationRoute) refresh();
   }, [session]);
 
-  const loadMoreLetters = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const contextQuery = encodeURIComponent(WORKSPACE_CONTEXT);
-      const nextPage = page + 1;
-      const res = await authedFetch(`/letters?context=${contextQuery}&page=${nextPage}&limit=${PAGE_SIZE}`);
-      if (!res.ok) throw new Error('Failed to load more letters');
-      const payload = await res.json();
-      const newLetters = parseCollection<Letter>(payload);
-      setLetters((prev) => [...prev, ...newLetters]);
-      const meta = payload?.meta;
-      setPage(nextPage);
-      setHasMore(Boolean(meta?.hasMore));
-    } catch (err) {
-      console.error('Failed to load more letters', err);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
-
   if (isVerificationRoute) {
     return (
-      <div className="md-auth-page">
-        <div className="md-auth-card md-auth-card--wide">
-          <p className="md-eyebrow">Verification</p>
-          <h1 className="md-auth-card__title">Letter verification payload</h1>
-          <pre className="md-verification-pre">{JSON.stringify(verificationData, null, 2)}</pre>
+      <div className="off-canvas-sidebar">
+        <div className="wrapper-full-page">
+          <div className="page-header login-page" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=1200)' }}>
+            <div className="container mx-auto px-4 relative z-10 flex justify-center">
+              <div className="card max-w-4xl">
+                <div className="card-header card-header-primary text-center">
+                   <h4 className="card-title">Verification Results</h4>
+                </div>
+                <div className="card-body p-8">
+                   <pre className="md-verification-pre">{JSON.stringify(verificationData, null, 2)}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -227,41 +156,70 @@ export default function App() {
 
   if (!session) {
     return (
-      <div className="md-auth-page">
-        <div className="md-auth-card">
-          <p className="md-eyebrow">Material dashboard theme</p>
-          <h1 className="md-auth-card__title">Sign in to the letter workflow</h1>
-          <p className="md-auth-card__subtitle">
-            This keeps the React app intact while applying the shared admin-shell language you wanted.
-          </p>
-          <div className="space-y-4">
-            <Input
-              className="md-auth-input"
-              placeholder="Email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <Input
-              className="md-auth-input"
-              placeholder="Password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            <Button
-              className="md-auth-submit"
-              onClick={async () => {
-                const result = await auth.signInWithPassword({ email, password });
-                if (result.error) alert(result.error);
-              }}
-            >
-              <span className="material-icons text-base" aria-hidden="true">login</span>
-              Sign in
-            </Button>
-          </div>
-          <div className="md-auth-note">
-            <span className="material-icons text-base" aria-hidden="true">info</span>
-            <span>Demo login: `admin@mcc.local` / `admin123`</span>
+      <div className="off-canvas-sidebar">
+        <div className="wrapper-full-page">
+          <div className="page-header login-page" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=1200)' }}>
+            <div className="container mx-auto px-4 relative z-10 flex justify-center">
+              <div className="w-full max-w-md">
+                <form className="form" onSubmit={(e) => e.preventDefault()}>
+                  <div className="card">
+                    <div className="card-header card-header-primary text-center">
+                      <h4 className="card-title font-bold">Login</h4>
+                      <div className="social-line flex justify-center gap-4 mt-4">
+                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-facebook-square"></i></a>
+                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-twitter"></i></a>
+                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-google-plus"></i></a>
+                      </div>
+                    </div>
+                    <p className="description text-center mt-4 text-gray-500 font-medium">Or Be Classical</p>
+                    <div className="card-body px-8 py-4 space-y-6">
+                      <div className="input-group flex items-end gap-4">
+                        <div className="input-group-prepend">
+                          <span className="input-group-text"><i className="material-icons text-gray-400">email</i></span>
+                        </div>
+                        <input
+                          type="email"
+                          className="form-control"
+                          placeholder="Email..."
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                        />
+                      </div>
+                      <div className="input-group flex items-end gap-4">
+                        <div className="input-group-prepend">
+                          <span className="input-group-text"><i className="material-icons text-gray-400">lock_outline</i></span>
+                        </div>
+                        <input
+                          type="password"
+                          className="form-control"
+                          placeholder="Password..."
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                        />
+                      </div>
+                      
+                      <div className="bg-primary/5 p-4 rounded-lg border border-primary/10 flex items-start gap-3 mt-8">
+                         <i className="material-icons text-primary">info</i>
+                         <div className="text-[11px] font-bold text-primary uppercase leading-tight">
+                            Demo account: admin@mcc.local / admin123
+                         </div>
+                      </div>
+                    </div>
+                    <div className="footer text-center pb-8 pt-4">
+                      <button
+                        className="btn btn-primary btn-link btn-lg font-bold text-sm uppercase"
+                        onClick={async () => {
+                          const result = await auth.signInWithPassword({ email, password });
+                          if (result.error) alert(result.error);
+                        }}
+                      >
+                        Get Started
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -272,6 +230,19 @@ export default function App() {
     <AppShell
       activeView={view}
       onChangeView={setView}
+      onNewLetter={async () => {
+        await fetchOrThrow('/letters', {
+          method: 'POST',
+          body: JSON.stringify({
+            context: WORKSPACE_CONTEXT,
+            title: 'Untitled letter',
+            content: 'Start writing your letter here.',
+            tag_ids: []
+          })
+        });
+        await refresh();
+        setView('workspace');
+      }}
       onSignOut={() => auth.signOut()}
       email={session?.user?.email}
     >
@@ -285,7 +256,19 @@ export default function App() {
           approvers={approvers}
           pendingApprovals={pendingApprovals}
           hasMore={hasMore}
-          onLoadMore={loadMoreLetters}
+          onLoadMore={async () => {
+             if (loadingMore || !hasMore) return;
+             setLoadingMore(true);
+             try {
+               const nextPage = page + 1;
+               const res = await authedFetch(`/letters?context=${WORKSPACE_CONTEXT}&page=${nextPage}&limit=${PAGE_SIZE}`);
+               const payload = await res.json();
+               const newLetters = parseCollection<Letter>(payload);
+               setLetters((prev) => [...prev, ...newLetters]);
+               setPage(nextPage);
+               setHasMore(Boolean(payload?.meta?.hasMore));
+             } finally { setLoadingMore(false); }
+          }}
           loadingMore={loadingMore}
           onCreateOrUpdate={async (payload) => {
             await fetchOrThrow('/letters', { method: 'POST', body: JSON.stringify({ ...payload, context: payload?.context ?? WORKSPACE_CONTEXT }) });
