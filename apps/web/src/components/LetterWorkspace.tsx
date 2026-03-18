@@ -1,20 +1,11 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { LETTER_STATUSES } from '@mcc/shared';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RichTextEditor } from './RichTextEditor';
 import { auth } from '../lib/auth';
+import { RichTextEditor } from './RichTextEditor';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-
 const STAGES = LETTER_STATUSES;
-
 type Stage = typeof STAGES[number];
-
 type Tag = { id: string; name: string };
 type Letter = any;
 type ApproverOption = {
@@ -24,6 +15,8 @@ type ApproverOption = {
 };
 
 type Props = {
+  selectedId: string | null;
+  onSelectLetter: (id: string | null) => void;
   letters: Letter[];
   tags: Tag[];
   auditLogs: any[];
@@ -47,8 +40,7 @@ const formatApproverFallback = (approverId: string) => {
   return approverId.length > 12 ? `User - ${approverId.slice(0, 8)}...${approverId.slice(-4)}` : `User - ${approverId}`;
 };
 
-export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingApprovals, hasMore, onLoadMore, loadingMore, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
-  const [selectedId, setSelectedId] = useState<string | null>(letters[0]?.id ?? null);
+export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, auditLogs, approvers, pendingApprovals, hasMore, onLoadMore, loadingMore, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -59,8 +51,6 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
   const [isSaving, setIsSaving] = useState(false);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowLoading, setWorkflowLoading] = useState<string | null>(null);
-  
-  // Attachment state
   const [attachments, setAttachments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,33 +58,20 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
   const selectedLetter = letters.find((letter) => letter.id === selectedId) ?? null;
 
   React.useEffect(() => {
-    if (letters.length === 0) {
-      if (selectedId !== null) {
-        setSelectedId(null);
-      }
-      return;
-    }
-
-    const hasSelectedLetter = selectedId !== null && letters.some((letter) => letter.id === selectedId);
-    if (!hasSelectedLetter) {
-      setSelectedId(letters[0].id);
-    }
-  }, [letters, selectedId]);
-
-  React.useEffect(() => {
     let disposed = false;
-
+    setSaveMessage(null);
+    setWorkflowMessage(null);
+    setWorkflowLoading(null);
+    setShowAudit(false);
     if (!selectedLetter) {
       setTitle('');
       setContent('');
       setSelectedTags([]);
       setSelectedApproverIds([]);
       setJobReference('');
-      return () => {
-        disposed = true;
-      };
+      setAttachments([]);
+      return () => { disposed = true; };
     }
-
     setTitle(selectedLetter.title || '');
     setSelectedTags((selectedLetter.letter_tags || []).map((item: any) => item.tag_id));
     setSelectedApproverIds(
@@ -113,19 +90,14 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
       onFetchLetter(selectedLetter.id).then((fullLetter) => {
         if (disposed) return;
         setContent(fullLetter.content || '');
-        if (typeof fullLetter?.job_reference === 'string') {
-          setJobReference(fullLetter.job_reference);
-        }
+        if (typeof fullLetter?.job_reference === 'string') setJobReference(fullLetter.job_reference);
       }).catch((err) => {
         if (disposed) return;
         console.error('Failed to fetch letter content', err);
         setContent('Error loading content.');
       });
     }
-
-    return () => {
-      disposed = true;
-    };
+    return () => { disposed = true; };
   }, [selectedLetter?.id]);
 
   const grouped = useMemo(() => {
@@ -147,57 +119,11 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
     return approvers.filter((item) => !selectedApproverIds.includes(item.id));
   }, [approvers, selectedApproverIds]);
 
-  const hasLetters = letters.length > 0;
-  const workflowDisabledReason = !hasLetters
-    ? 'No letters available yet. Create a draft or use the Demo menu (wand icon) to generate sample data.'
-    : 'Select a letter from the Stage Panel to enable workflow actions.';
   const selectedStatus = selectedLetter?.status ?? null;
   const isDraft = selectedStatus === 'DRAFT';
   const isSubmitted = selectedStatus === 'SUBMITTED';
   const isApproved = selectedStatus === 'APPROVED';
   const isIssued = selectedStatus === 'ISSUED';
-
-  const routeDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isDraft
-      ? `Route is only available while status is DRAFT (current: ${selectedStatus}).`
-      : null;
-  const submitDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isDraft
-      ? `Submit is only available while status is DRAFT (current: ${selectedStatus}).`
-      : null;
-  const approveDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isSubmitted
-      ? `Approve is only available while status is SUBMITTED (current: ${selectedStatus}).`
-      : !selectedLetter.canApprove
-        ? 'Approve is available only to assigned pending approvers (or admins).'
-        : null;
-  const rejectDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isSubmitted
-      ? `Reject is only available while status is SUBMITTED (current: ${selectedStatus}).`
-      : !selectedLetter.canApprove
-        ? 'Reject is available only to assigned pending approvers (or admins).'
-        : null;
-  const issueDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isApproved
-      ? `Issue is only available while status is APPROVED (current: ${selectedStatus}).`
-      : null;
-  const printDisabledReason = !selectedLetter
-    ? workflowDisabledReason
-    : !isIssued
-      ? `Print is only available while status is ISSUED (current: ${selectedStatus}).`
-      : null;
-  const saveDisabledReason = selectedLetter && !isDraft
-    ? `Save Draft is only available while status is DRAFT (current: ${selectedStatus}).`
-    : undefined;
-
-  const workflowHelperText = !selectedLetter
-    ? workflowDisabledReason
-    : `Current status: ${selectedStatus}. Route sets approvers, Submit starts review, Approve/Reject decide submissions, Issue finalizes approval, and Print records issued copies.`;
 
   const toggleTag = (tagId: string) => {
     setSelectedTags((prev) => prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
@@ -213,18 +139,14 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
 
   const handleSaveDraft = async () => {
     setSaveMessage(null);
-    setWorkflowMessage(null);
-
     if (selectedLetter && selectedLetter.status !== 'DRAFT') {
       setSaveMessage(`Only DRAFT letters can be saved (current: ${selectedLetter.status}).`);
       return;
     }
-
     if (!content.trim()) {
       setSaveMessage('Draft content cannot be empty.');
       return;
     }
-
     setIsSaving(true);
     try {
       await onCreateOrUpdate({
@@ -235,10 +157,9 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
         tag_ids: selectedTags,
         job_reference: jobReference.trim() || null
       });
-      setSaveMessage('Draft saved.');
+      setSaveMessage('Draft saved successfully.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save draft.';
-      setSaveMessage(message);
+      setSaveMessage(error instanceof Error ? error.message : 'Failed to save draft.');
     } finally {
       setIsSaving(false);
     }
@@ -247,80 +168,50 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
   const runWorkflowAction = async (label: string, callback: () => Promise<void>) => {
     setWorkflowMessage(null);
     if (!selectedLetter) {
-      setWorkflowMessage('Select a letter from the Stage Panel first.');
+      setWorkflowMessage('Select a letter first.');
       return;
     }
-
     setWorkflowLoading(label);
     try {
       await callback();
       setWorkflowMessage(`${label} completed.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : `${label} failed.`;
-      setWorkflowMessage(message);
+      setWorkflowMessage(error instanceof Error ? error.message : `${label} failed.`);
     } finally {
       setWorkflowLoading(null);
     }
   };
 
-  // Fetch attachments when selected letter changes
   React.useEffect(() => {
-    if (!selectedLetter?.id) {
-      setAttachments([]);
-      return;
-    }
-    
+    if (!selectedLetter?.id) { setAttachments([]); return; }
     const fetchAttachments = async () => {
-      if (!selectedLetter?.id) {
-        setAttachments([]);
-        return;
-      }
-      
+      const token = auth.getAccessToken();
+      if (!token) return;
       try {
-        const token = auth.getAccessToken();
-        if (!token) {
-          setAttachments([]);
-          return;
-        }
-        
         const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) {
-          setAttachments([]);
-          return;
+        if (res.ok) {
+          const data = await res.json();
+          setAttachments(Array.isArray(data) ? data : []);
         }
-        const data = await res.json();
-        setAttachments(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error('Failed to fetch attachments:', err);
-        setAttachments([]);
-      }
+      } catch (err) { console.error(err); }
     };
-    
     fetchAttachments();
   }, [selectedLetter?.id]);
 
-  // Handle file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedLetter?.id) return;
-    
     const files = event.target.files;
     if (!files || files.length === 0) return;
-
     setIsUploading(true);
     try {
       const token = auth.getAccessToken();
       if (!token) return;
-
       for (const file of Array.from(files)) {
-        // Save attachment metadata to database (file storage skipped per migration)
         await fetch(`${API_BASE}/attachments`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             letter_id: selectedLetter.id,
             file_name: file.name,
@@ -330,167 +221,151 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
           }),
         });
       }
-
-      // Refresh attachments list
       const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       setAttachments(data || []);
-    } catch (err) {
-      console.error('Upload error:', err);
-    } finally {
+    } catch (err) { console.error(err); } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Handle delete attachment
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!confirm('Delete this attachment?')) return;
-    
     try {
       const token = auth.getAccessToken();
       if (!token) return;
-
       const res = await fetch(`${API_BASE}/attachments/${attachmentId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (res.ok && selectedLetter?.id) {
-        // Refresh attachments
         const attRes = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await attRes.json();
         setAttachments(data || []);
       }
-    } catch (err) {
-      console.error('Delete error:', err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle>Letter Workspace</CardTitle>
-          <p className="text-xs text-muted-foreground">Context scope: COMPANY</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Letter title" />
-          <Input
-            value={jobReference}
-            onChange={(event) => setJobReference(event.target.value)}
-            placeholder="Job reference (optional, e.g. JOB-2026-0042)"
-          />
-          <RichTextEditor value={content} onChange={setContent} />
-
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <Button key={tag.id} type="button" size="sm" variant={selectedTags.includes(tag.id) ? 'default' : 'outline'} onClick={() => toggleTag(tag.id)}>
-                {tag.name}
-              </Button>
-            ))}
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
+      <div className="card">
+        <div className="card-header card-header-primary">
+          <h4 className="card-title">Letter Workspace</h4>
+          <p className="card-category">Context scope: COMPANY</p>
+        </div>
+        <div className="card-body pt-8 space-y-8">
+          <div className="form-group">
+            <input 
+              value={title} 
+              onChange={(e) => setTitle(e.target.value)} 
+              placeholder="Letter title" 
+              className="form-control font-bold text-lg" 
+            />
+          </div>
+          <div className="form-group">
+            <input
+              value={jobReference}
+              onChange={(e) => setJobReference(e.target.value)}
+              placeholder="Job reference (optional)"
+              className="form-control text-sm"
+            />
+          </div>
+          
+          <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+             <RichTextEditor value={content} onChange={setContent} />
           </div>
 
-          <div className="space-y-2 rounded border p-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <p className="text-sm font-semibold">Approver picker</p>
-              <p className="text-xs text-muted-foreground">
-                Route uses these approvers (plus tag defaults). No UUID typing required.
-              </p>
-            </div>
-            <Select
-              onValueChange={addApprover}
-              disabled={!selectedLetter || !isDraft || selectableApprovers.length === 0}
-            >
-              <SelectTrigger title={routeDisabledReason ?? 'Select an approver to add to routing for this draft.'}>
-                <SelectValue placeholder={selectableApprovers.length > 0 ? 'Add approver' : 'No additional approvers available'} />
-              </SelectTrigger>
-              <SelectContent>
-                {selectableApprovers.map((approver) => (
-                  <SelectItem key={approver.id} value={approver.id}>
-                    {approver.label}
-                  </SelectItem>
+          <div className="space-y-4">
+             <p className="text-[11px] font-bold text-gray-400 uppercase">Tags</p>
+             <div className="flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <button 
+                    key={tag.id} 
+                    type="button" 
+                    className={`btn btn-sm ${selectedTags.includes(tag.id) ? 'btn-primary' : 'btn-white border border-gray-200'}`} 
+                    onClick={() => toggleTag(tag.id)}
+                  >
+                    {tag.name}
+                  </button>
                 ))}
-              </SelectContent>
-            </Select>
+             </div>
+          </div>
+
+          <div className="p-6 rounded-xl bg-gray-50 border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center">
+              <p className="text-sm font-bold text-gray-700 uppercase">Routing & Approvers</p>
+              <p className="text-[10px] text-gray-400 font-bold uppercase italic">Tag defaults apply on route</p>
+            </div>
+            
+            <div className="form-group">
+               <select
+                 className="form-control"
+                 onChange={(e) => addApprover(e.target.value)}
+                 disabled={!selectedLetter || !isDraft || selectableApprovers.length === 0}
+                 value=""
+               >
+                 <option value="" disabled>{selectableApprovers.length > 0 ? 'Add manual approver...' : 'No additional approvers'}</option>
+                 {selectableApprovers.map((approver) => (
+                   <option key={approver.id} value={approver.id}>
+                     {approver.label}
+                   </option>
+                 ))}
+               </select>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {selectedApprovers.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No manual approvers selected. Tag defaults will still apply when routing.
-                </p>
+                <p className="text-xs text-gray-400 italic">No manual approvers selected.</p>
               ) : (
                 selectedApprovers.map((approver) => (
-                  <Button
+                  <button
                     key={approver.id}
                     type="button"
-                    size="sm"
-                    variant="secondary"
+                    className="btn btn-rose btn-sm lowercase font-medium"
                     onClick={() => removeApprover(approver.id)}
-                    title="Remove approver from route selection"
                   >
-                    {approver.label} x
-                  </Button>
+                    {approver.label} <i className="material-icons text-xs ml-1">close</i>
+                  </button>
                 ))
               )}
             </div>
           </div>
 
-          {/* Attachments Section */}
           {selectedLetter && (
-            <div className="space-y-2 rounded border p-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <p className="text-sm font-semibold">Attachments</p>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  multiple
-                  className="hidden"
-                  id="workspace-file-upload"
-                />
-                <label
-                  htmlFor="workspace-file-upload"
-                  className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
-                >
-                  {isUploading ? 'Uploading...' : '+ Add files'}
+            <div className="p-6 rounded-xl bg-gray-50 border border-gray-100 space-y-4">
+              <div className="flex justify-between items-center">
+                <p className="text-sm font-bold text-gray-700 uppercase">Attachments</p>
+                <label className={`btn btn-link btn-info btn-sm mb-0 cursor-pointer font-bold ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <i className="material-icons text-sm mr-1">add</i> {isUploading ? 'Uploading...' : 'Add Files'}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    multiple
+                    className="hidden"
+                    disabled={isUploading}
+                  />
                 </label>
               </div>
               
               {!Array.isArray(attachments) || attachments.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No attachments</p>
+                <p className="text-xs text-gray-400 italic">No attachments for this letter.</p>
               ) : (
-                <div className="space-y-2 mt-2">
+                <div className="space-y-2">
                   {attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex items-center justify-between bg-zinc-800 rounded p-2">
+                    <div key={attachment.id} className="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border border-gray-100">
                       <div className="flex items-center gap-2 overflow-hidden">
-                        <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span className="text-xs truncate" title={attachment.file_name}>
-                          {attachment.file_name}
-                        </span>
+                        <i className="material-icons text-info text-lg">description</i>
+                        <span className="text-xs font-bold text-gray-600 truncate">{attachment.file_name}</span>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <a
-                          href={attachment.file_path}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300 px-1"
-                        >
-                          View
-                        </a>
-                        <button
-                          onClick={() => handleDeleteAttachment(attachment.id)}
-                          className="text-xs text-red-400 hover:text-red-300 px-1"
-                        >
-                          ×
-                        </button>
+                      <div className="flex items-center gap-2">
+                        <a href={attachment.file_path} target="_blank" rel="noopener noreferrer" className="btn btn-link btn-info p-1">View</a>
+                        <button onClick={() => handleDeleteAttachment(attachment.id)} className="btn btn-link btn-danger p-1">Delete</button>
                       </div>
                     </div>
                   ))}
@@ -499,195 +374,156 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
             </div>
           )}
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={handleSaveDraft} disabled={isSaving || !!saveDisabledReason} title={saveDisabledReason}>
-                {isSaving ? 'Saving...' : 'Save Draft'}
-              </Button>
-            </div>
+          <div className="pt-8 border-t border-gray-100 space-y-6">
+            <button 
+              className="btn btn-primary btn-lg" 
+              onClick={handleSaveDraft} 
+              disabled={isSaving || (selectedLetter && !isDraft)}
+            >
+              <i className="material-icons text-base mr-2">save</i>
+              {isSaving ? 'Saving...' : 'Save Draft'}
+            </button>
 
-            <div className="rounded border border-dashed p-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <p className="text-sm font-semibold">Workflow actions</p>
-                <p className="text-xs text-muted-foreground">{workflowHelperText}</p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  disabled={!!routeDisabledReason || !!workflowLoading}
-                  title={routeDisabledReason ?? 'Route saves tag + approver assignments for this draft before submission.'}
-                  onClick={() => {
-                    void runWorkflowAction('Route', async () => {
-                      if (!selectedLetter) return;
-                      await onRoute(selectedLetter.id, {
-                        tag_ids: selectedTags,
-                        cc_approver_ids: selectedApproverIds,
-                        approval_mode: 'ALL',
-                        job_reference: jobReference.trim() || undefined
-                      });
-                    });
-                  }}
+            <div className="p-6 rounded-xl border-2 border-dashed border-gray-200 space-y-4">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Lifecycle Actions</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="btn btn-info btn-sm"
+                  disabled={!isDraft || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Route', () => onRoute(selectedLetter.id, { tag_ids: selectedTags, cc_approver_ids: selectedApproverIds, approval_mode: 'ALL', job_reference: jobReference.trim() || undefined }))}
                 >
-                  {workflowLoading === 'Route' ? 'Routing...' : 'Route'}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!!submitDisabledReason || !!workflowLoading}
-                  title={submitDisabledReason ?? 'Submit moves this draft into SUBMITTED and starts approval review.'}
-                  onClick={() => {
-                    void runWorkflowAction('Submit', async () => {
-                      if (!selectedLetter) return;
-                      await onSubmit(selectedLetter.id);
-                    });
-                  }}
+                  <i className="material-icons text-base mr-1">route</i> Route
+                </button>
+                <button
+                  className="btn btn-warning btn-sm"
+                  disabled={!isDraft || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Submit', () => onSubmit(selectedLetter.id))}
                 >
-                  {workflowLoading === 'Submit' ? 'Submitting...' : 'Submit'}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!!approveDisabledReason || !!workflowLoading}
-                  title={approveDisabledReason ?? 'Approve records your decision on this submitted letter.'}
-                  onClick={() => {
-                    void runWorkflowAction('Approve', async () => {
-                      if (!selectedLetter) return;
-                      await onApprove(selectedLetter.id);
-                    });
-                  }}
+                  <i className="material-icons text-base mr-1">send</i> Submit
+                </button>
+                <button
+                  className="btn btn-success btn-sm"
+                  disabled={!isSubmitted || !selectedLetter?.canApprove || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Approve', () => onApprove(selectedLetter.id))}
                 >
-                  {workflowLoading === 'Approve' ? 'Approving...' : 'Approve'}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!!rejectDisabledReason || !!workflowLoading}
-                  title={rejectDisabledReason ?? 'Reject records a rejection decision and marks the letter as REJECTED.'}
-                  onClick={() => {
-                    void runWorkflowAction('Reject', async () => {
-                      if (!selectedLetter) return;
-                      await onReject(selectedLetter.id, 'Rejected from workspace');
-                    });
-                  }}
+                  <i className="material-icons text-base mr-1">check</i> Approve
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  disabled={!isSubmitted || !selectedLetter?.canApprove || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Reject', () => onReject(selectedLetter.id, 'Rejected from workspace'))}
                 >
-                  {workflowLoading === 'Reject' ? 'Rejecting...' : 'Reject'}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!!issueDisabledReason || !!workflowLoading}
-                  title={issueDisabledReason ?? 'Issue creates an issuance record for an APPROVED letter.'}
-                  onClick={() => {
-                    void runWorkflowAction('Issue', async () => {
-                      if (!selectedLetter) return;
-                      await onIssue(selectedLetter.id, { job_reference: jobReference.trim() || undefined });
-                    });
-                  }}
+                  <i className="material-icons text-base mr-1">close</i> Reject
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={!isApproved || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Issue', () => onIssue(selectedLetter.id, { job_reference: jobReference.trim() || undefined }))}
                 >
-                  {workflowLoading === 'Issue' ? 'Issuing...' : 'Issue'}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!!printDisabledReason || !!workflowLoading}
-                  title={printDisabledReason ?? 'Print records a print event for the latest ISSUED version.'}
-                  onClick={() => {
-                    void runWorkflowAction('Print', async () => {
-                      if (!selectedLetter) return;
-                      await onPrint(selectedLetter.id, { job_reference: jobReference.trim() || undefined });
-                    });
-                  }}
+                  <i className="material-icons text-base mr-1">verified</i> Issue
+                </button>
+                <button
+                  className="btn btn-rose btn-sm"
+                  disabled={!isIssued || !!workflowLoading}
+                  onClick={() => runWorkflowAction('Print', () => onPrint(selectedLetter.id, { job_reference: jobReference.trim() || undefined }))}
                 >
-                  {workflowLoading === 'Print' ? 'Printing...' : 'Print'}
-                </Button>
+                  <i className="material-icons text-base mr-1">print</i> Print
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => setShowAudit(true)}>Audit</Button>
+            <div className="flex gap-4">
+              <button className="btn btn-link btn-sm font-bold uppercase" onClick={() => setShowAudit(true)}>
+                <i className="material-icons text-base mr-1">history</i> View Audit Trail
+              </button>
             </div>
           </div>
 
-          {saveMessage && (
-            <p className="text-sm text-muted-foreground">{saveMessage}</p>
+          {(saveMessage || workflowMessage) && (
+            <div className={`p-4 rounded-lg text-sm font-bold uppercase text-center ${saveMessage?.includes('success') || workflowMessage?.includes('complete') ? 'bg-success/10 text-success' : 'bg-rose/10 text-rose'}`}>
+               {saveMessage || workflowMessage}
+            </div>
           )}
-
-          {workflowMessage && (
-            <p className="text-sm text-muted-foreground">{workflowMessage}</p>
-          )}
-
-          <details>
-            <summary>Advanced</summary>
-            <p className="text-sm text-muted-foreground">ReactFlow lifecycle remains available in legacy view.</p>
-          </details>
 
           {selectedLetter && (
-            <div className="rounded border p-3">
-              <h4 className="mb-2 font-medium">Approver Checklist</h4>
-              <div className="space-y-1 text-sm">
-                {(selectedLetter.letter_approver_assignments || []).map((assignment: any) => {
-                  const displayLabel = approverLookup.get(assignment.approver_id)?.label || formatApproverFallback(assignment.approver_id);
-                  return (
-                    <div key={assignment.id} className="flex items-center justify-between">
-                      <span>{displayLabel}</span>
-                      <Badge>{assignment.decision}</Badge>
-                    </div>
-                  );
-                })}
+            <div className="card mt-8 shadow-none border border-gray-100 bg-gray-50/50">
+              <div className="card-body">
+                <h4 className="font-bold text-gray-700 uppercase text-xs mb-4">Approver Checklist</h4>
+                <div className="space-y-3">
+                  {(selectedLetter.letter_approver_assignments || []).map((assignment: any) => {
+                    const displayLabel = approverLookup.get(assignment.approver_id)?.label || formatApproverFallback(assignment.approver_id);
+                    return (
+                      <div key={assignment.id} className="flex items-center justify-between text-xs p-2 bg-white rounded border border-gray-100">
+                        <span className="font-medium">{displayLabel}</span>
+                        <span className={`font-bold uppercase px-2 py-0.5 rounded ${assignment.decision === 'APPROVED' ? 'bg-success text-white' : assignment.decision === 'REJECTED' ? 'bg-danger text-white' : 'bg-gray-200 text-gray-600'}`}>
+                          {assignment.decision}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>My Pending Approvals</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Submitted letters waiting on your approval decision.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-2">
+      <div className="space-y-8">
+        <div className="card">
+          <div className="card-header card-header-warning">
+            <h4 className="card-title">My Pending Tasks</h4>
+            <p className="card-category">Action required from you.</p>
+          </div>
+          <div className="card-body p-4 space-y-3">
             {pendingApprovals.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No pending approvals assigned to you.</p>
+              <div className="py-8 text-center text-gray-400 text-xs italic">No pending items.</div>
             ) : (
               pendingApprovals.map((letter) => (
                 <button
                   key={letter.id}
                   type="button"
-                  className={`w-full rounded border p-2 text-left ${selectedId === letter.id ? 'border-primary bg-muted/40' : ''}`}
-                  onClick={() => setSelectedId(letter.id)}
+                  className={`w-full p-4 rounded-xl border text-left transition-all ${selectedId === letter.id ? 'border-primary bg-primary/5 shadow-sm' : 'border-gray-100 bg-white hover:bg-gray-50'}`}
+                  onClick={() => onSelectLetter(letter.id)}
                 >
-                  <p className="text-sm font-medium">{letter.title || 'Untitled letter'}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(letter.updated_at || letter.created_at).toLocaleString()}</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Badge variant="secondary">
-                      Pending: {letter.approval_summary?.pending ?? 0}
-                    </Badge>
+                  <p className="text-sm font-bold text-gray-700">{letter.title || 'Untitled'}</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{new Date(letter.updated_at || letter.created_at).toLocaleString()}</p>
+                  <div className="mt-2">
+                    <span className="px-2 py-0.5 bg-warning text-white text-[9px] font-bold rounded uppercase shadow-sm">
+                      {letter.approval_summary?.pending ?? 0} Pending
+                    </span>
                   </div>
                 </button>
               ))
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Stage Panel</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Letters are grouped by lifecycle status. Click any letter card to load it into the workspace and run actions.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <div className="card">
+          <div className="card-header card-header-info">
+            <h4 className="card-title">Document Stages</h4>
+            <p className="card-category">Overview of all active letters.</p>
+          </div>
+          <div className="card-body p-4 space-y-8">
             {STAGES.map((stage) => (
-              <div key={stage} className="space-y-2">
-                <h4 className="text-sm font-semibold">{stage} ({grouped[stage].length})</h4>
+              <div key={stage} className="space-y-3">
+                <div className="flex justify-between items-center border-b border-gray-50 pb-2">
+                   <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{stage}</h4>
+                   <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{grouped[stage].length}</span>
+                </div>
                 {grouped[stage].map((letter) => (
-                  <button key={letter.id} type="button" className="w-full rounded border p-2 text-left" onClick={() => setSelectedId(letter.id)}>
-                    <p className="text-sm font-medium">{letter.title || 'Untitled letter'}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(letter.updated_at || letter.created_at).toLocaleString()}</p>
-                    <div className="mt-1 flex flex-wrap gap-1">
+                  <button 
+                    key={letter.id} 
+                    type="button" 
+                    className={`w-full p-3 rounded-lg border text-left transition-all ${selectedId === letter.id ? 'border-info bg-info/5 shadow-sm' : 'border-gray-50 bg-white hover:bg-gray-50'}`} 
+                    onClick={() => onSelectLetter(letter.id)}
+                  >
+                    <p className="text-xs font-bold text-gray-700 truncate">{letter.title || 'Untitled document'}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
                       {(letter.letter_tags || []).map((item: any, index: number) => (
-                        <Badge key={`${item.tag_id}-${index}`} variant="secondary">{item.tags?.name || item.tag_id}</Badge>
+                        <span key={`${item.tag_id}-${index}`} className="text-[9px] font-bold uppercase bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{item.tags?.name || 'TAG'}</span>
                       ))}
                       {letter.status === 'SUBMITTED' && letter.canApprove && (
-                        <Badge>My decision needed</Badge>
+                        <span className="text-[9px] font-bold uppercase bg-rose text-white px-1.5 py-0.5 rounded shadow-sm">My Decision</span>
                       )}
                     </div>
                   </button>
@@ -695,30 +531,41 @@ export function LetterWorkspace({ letters, tags, auditLogs, approvers, pendingAp
               </div>
             ))}
             {hasMore && onLoadMore && (
-              <Button variant="outline" onClick={() => void onLoadMore()} disabled={!!loadingMore}>
+              <button 
+                className="btn btn-link btn-info btn-sm w-full font-bold uppercase" 
+                onClick={() => void onLoadMore()} 
+                disabled={!!loadingMore}
+              >
                 {loadingMore ? 'Loading...' : 'Load more letters'}
-              </Button>
+              </button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
-      <Dialog open={showAudit} onOpenChange={setShowAudit}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Audit Trail</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[420px] space-y-2 overflow-auto text-sm">
-            {auditLogs.map((log) => (
-              <div key={log.id} className="rounded border p-2">
-                <p>{log.action}</p>
-                <p className="text-xs text-muted-foreground">{log.created_at}</p>
-                <pre className="overflow-auto text-xs">{JSON.stringify(log.metadata, null, 2)}</pre>
-              </div>
-            ))}
+      {showAudit && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="card w-[600px] max-h-[80vh] flex flex-col mt-0">
+            <div className="card-header card-header-rose flex justify-between items-center">
+              <h4 className="card-title">Audit Trail</h4>
+              <button className="text-white p-1 hover:bg-white/10 rounded" onClick={() => setShowAudit(false)}>
+                 <i className="material-icons">close</i>
+              </button>
+            </div>
+            <div className="card-body overflow-y-auto p-6 space-y-4">
+              {auditLogs.map((log) => (
+                <div key={log.id} className="p-4 rounded-xl border border-gray-100 bg-gray-50 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-gray-700 uppercase">{log.action}</span>
+                    <span className="text-[10px] text-gray-400 font-bold">{new Date(log.created_at).toLocaleString()}</span>
+                  </div>
+                  <pre className="text-[10px] bg-white p-3 rounded border border-gray-100 overflow-auto max-h-40">{JSON.stringify(log.metadata, null, 2)}</pre>
+                </div>
+              ))}
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }

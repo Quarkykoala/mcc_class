@@ -45,6 +45,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [verificationData, setVerificationData] = useState<any>(null);
   const [view, setView] = useState<'workspace' | 'dashboard'>('workspace');
+  const [selectedLetterId, setSelectedLetterId] = useState<string | null>(null);
 
   useEffect(() => {
     auth.getSession().then(({ data }) => setSession(data.session));
@@ -132,6 +133,15 @@ export default function App() {
   useEffect(() => {
     if (session && !isVerificationRoute) refresh();
   }, [session]);
+
+  useEffect(() => {
+    if (letters.length === 0) {
+      if (selectedLetterId !== null) setSelectedLetterId(null);
+      return;
+    }
+    const hasSelectedLetter = selectedLetterId !== null && letters.some((letter) => letter.id === selectedLetterId);
+    if (!hasSelectedLetter) setSelectedLetterId(letters[0].id);
+  }, [letters, selectedLetterId]);
 
   if (isVerificationRoute) {
     return (
@@ -231,7 +241,7 @@ export default function App() {
       activeView={view}
       onChangeView={setView}
       onNewLetter={async () => {
-        await fetchOrThrow('/letters', {
+        const response = await fetchOrThrow('/letters', {
           method: 'POST',
           body: JSON.stringify({
             context: WORKSPACE_CONTEXT,
@@ -240,7 +250,9 @@ export default function App() {
             tag_ids: []
           })
         });
+        const createdLetter = await response.json();
         await refresh();
+        if (typeof createdLetter?.id === 'string') setSelectedLetterId(createdLetter.id);
         setView('workspace');
       }}
       onSignOut={() => auth.signOut()}
@@ -250,6 +262,8 @@ export default function App() {
         <Dashboard />
       ) : (
         <LetterWorkspace
+          selectedId={selectedLetterId}
+          onSelectLetter={setSelectedLetterId}
           letters={letters}
           tags={tags}
           auditLogs={auditLogs}
