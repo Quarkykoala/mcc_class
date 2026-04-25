@@ -13,7 +13,6 @@ import { emailLinksRoutes } from './routes/email-links';
 import { auditRoutes } from './routes/audit';
 import { committeesRoutes } from './routes/committees';
 import { tagsAdminRoutes } from './routes/tags-admin';
-import { demoRoutes } from './routes/demo';
 import { analyticsRoutes } from './routes/analytics';
 import { attachmentsRoutes } from './routes/attachments';
 import { autoRoutingRoutes } from './routes/auto-routing';
@@ -23,15 +22,22 @@ dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const app = express();
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+const allowedOrigins = process.env.CLIENT_URL
+    ? (process.env.NODE_ENV === 'production'
+        ? [process.env.CLIENT_URL]
+        : [process.env.CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'])
+    : '*';
 
 app.set('trust proxy', true);
 
-app.use(cors({
-    origin: '*',
+const corsOptions = {
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-verify-key', 'ngrok-skip-browser-warning']
-}));
-app.options('*', cors());
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '12mb' }));
 
 app.get('/', (_req, res) => {
@@ -55,7 +61,6 @@ app.use('/api', emailLinksRoutes());
 app.use('/api', auditRoutes());
 app.use('/api', committeesRoutes());
 app.use('/api', tagsAdminRoutes());
-app.use('/api', demoRoutes());
 app.use('/api', analyticsRoutes());
 app.use('/api', attachmentsRoutes());
 app.use('/api', autoRoutingRoutes());

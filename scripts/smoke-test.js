@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { execute, pool, query, queryOne } from './db';
+import { execute, pool, query, queryOne } from '../apps/api/src/db';
 
 function generateTestUser() {
     return {

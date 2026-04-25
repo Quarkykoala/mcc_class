@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auth } from './lib/auth';
 import { LetterWorkspace } from './components/LetterWorkspace';
-import { DemoDebugMenu } from './components/DemoDebugMenu';
 import { Dashboard } from './components/Dashboard';
 import { AppShell } from './components/AppShell';
 import { MyTasks } from './components/MyTasks';
@@ -93,7 +92,9 @@ export default function App() {
       if (data.session) {
         setSession(data.session);
       } else if (!isVerificationRoute) {
-        auth.signInWithPassword({ email: 'admin@mcc.local', password: 'admin123' });
+        if (import.meta.env.VITE_DEMO_AUTO_LOGIN === 'true') {
+          auth.signInWithPassword({ email: 'admin@mcc.local', password: 'admin123' });
+        }
       }
     });
     const { data: sub } = auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
@@ -231,8 +232,15 @@ export default function App() {
 
   if (!session) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <p className="text-gray-500 font-medium">Auto-logging into demo...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4 text-center">
+        {import.meta.env.VITE_DEMO_AUTO_LOGIN === 'true' ? (
+          <p className="text-gray-500 font-medium">Auto-logging into demo...</p>
+        ) : (
+          <div className="bg-white p-8 rounded shadow max-w-sm w-full">
+            <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
+            <p className="text-gray-600 mb-6">Please log in to continue. (Auto-login is disabled in this environment)</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -307,7 +315,6 @@ export default function App() {
           onFetchLetter={async (id) => { const res = await fetchOrThrow(`/letters/${id}`); return res.json(); }}
         />
       )}
-      <DemoDebugMenu onRefresh={refresh} />
     </AppShell>
   );
 }

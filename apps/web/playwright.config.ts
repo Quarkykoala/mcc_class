@@ -39,6 +39,7 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         env: {
             DEMO_MODE: 'true',
+            VITE_DEMO_AUTO_LOGIN: 'true',
         },
     },
 });

@@ -7,6 +7,9 @@ import { uuidv4 } from './uuid';
 const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required in production.');
+}
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_EMAIL = 'admin@mcc.local';
@@ -40,6 +43,10 @@ async function getFirstAvailableUser() {
 }
 
 const registerHandler = async (req: Request, res: Response) => {
+    if (process.env.ALLOW_REGISTRATION !== 'true') {
+        return res.status(403).json({ error: 'Registration is disabled.' });
+    }
+
     const { email, password } = req.body;
 
     if (!email || !password) {

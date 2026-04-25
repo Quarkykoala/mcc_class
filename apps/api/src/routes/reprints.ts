@@ -3,6 +3,7 @@ import { queryOne, query, execute } from '../db';
 import { reprintSchema } from '../validation/letters';
 import { isAdmin, isApprover } from '../auth/roles';
 import { uuidv4 } from '../uuid';
+import { canAccessLetter } from '../letters/letter-helpers';
 
 export const reprintsRoutes = () => {
     const router = Router();
@@ -17,6 +18,11 @@ export const reprintsRoutes = () => {
             }
             const { id } = req.params;
             const { reason } = parsed.data;
+            const letter = await queryOne<any>('SELECT department_id, created_by FROM letters WHERE id = ?', [id]);
+            if (!letter) return res.status(404).json({ error: 'Letter not found.' });
+            if (!(await canAccessLetter(userId, isAdmin(req), letter))) {
+                return res.status(403).json({ error: 'Not authorized for this letter.' });
+            }
             const issuance = await queryOne<any>(
                 `SELECT i.id FROM issuances i INNER JOIN letter_versions lv ON i.letter_version_id = lv.id
                  WHERE lv.letter_id = ? ORDER BY i.issued_at DESC LIMIT 1`,

@@ -480,7 +480,7 @@ export const lettersRoutes = () => {
             const letter = await queryOne<any>('SELECT l.*, d.name as dept_name FROM letters l LEFT JOIN departments d ON l.department_id = d.id WHERE l.id = ?', [id]);
             if (!letter) return res.status(404).json({ error: 'Letter not found' });
             if (!(await canAccessLetter(userId, admin, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
-            if (letter.status !== 'APPROVED' && letter.status !== 'ISSUED') return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
+            if (!canTransition(letter.status, 'ISSUED')) return res.status(400).json({ error: 'Letter must be APPROVED to issue.' });
 
             const tagRows = await query<any>('SELECT tag_id FROM letter_tags WHERE letter_id = ?', [id]);
             const tagIds = tagRows.map((t: any) => t.tag_id).sort();
@@ -488,7 +488,7 @@ export const lettersRoutes = () => {
             const result = await transaction(async (conn) => {
                 const lockedLetter = await queryOneWithConn<any>(conn, 'SELECT id, status, content FROM letters WHERE id = ? FOR UPDATE', [id]);
                 if (!lockedLetter) throw new Error('Letter not found');
-                if (lockedLetter.status !== 'APPROVED' && lockedLetter.status !== 'ISSUED') throw new Error('Letter must be APPROVED to issue.');
+                if (!canTransition(lockedLetter.status, 'ISSUED')) throw new Error('Letter must be APPROVED to issue.');
 
                 const versions = await queryWithConn<any>(conn, 'SELECT version_number FROM letter_versions WHERE letter_id = ? ORDER BY version_number DESC LIMIT 1', [id]);
                 const nextVersion = (versions.length > 0) ? versions[0].version_number + 1 : 1;
@@ -509,9 +509,9 @@ export const lettersRoutes = () => {
                     [versionId, id, nextVersion, lockedLetter.content, contentHash, verificationToken, userId]
                 );
 
-                const seqRow = await queryOneWithConn<any>(conn, 'SELECT next_val FROM letter_number_seq FOR UPDATE', []);
+                const seqRow = await queryOneWithConn<any>(conn, 'SELECT next_val FROM letter_number_seq WHERE id = ? FOR UPDATE', ['letter_number']);
                 const letterNumber = seqRow?.next_val || 10001;
-                await executeWithConn(conn, 'UPDATE letter_number_seq SET next_val = next_val + 1', []);
+                await executeWithConn(conn, 'UPDATE letter_number_seq SET next_val = next_val + 1 WHERE id = ?', ['letter_number']);
 
                 await executeWithConn(conn, 'UPDATE letters SET status = ?, letter_number = ?, updated_at = NOW() WHERE id = ?', ['ISSUED', letterNumber, id]);
 

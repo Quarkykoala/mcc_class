@@ -347,6 +347,8 @@ CREATE INDEX idx_approval_deadlines_due ON approval_deadlines(due_at);
 -- Letter number auto-increment helper (replaces PostgreSQL sequence)
 -- We use a separate counter table since MySQL AUTO_INCREMENT only works on the PK
 CREATE TABLE IF NOT EXISTS letter_number_seq (
+    id VARCHAR(50) PRIMARY KEY,
     next_val BIGINT NOT NULL DEFAULT 10001
 );
-INSERT INTO letter_number_seq (next_val) VALUES (10001);
+INSERT INTO letter_number_seq (id, next_val) VALUES ('letter_number', 10001)
+ON DUPLICATE KEY UPDATE next_val = next_val;

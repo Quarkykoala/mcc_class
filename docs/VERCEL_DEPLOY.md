@@ -28,6 +28,7 @@ MYSQL_DATABASE=
 JWT_SECRET=
 JWT_EXPIRES_IN=7d
 DEMO_MODE=false
+ALLOW_REGISTRATION=false
 CLIENT_URL=https://<your-web-project>.vercel.app
 ```
 
@@ -46,11 +47,23 @@ Required environment variables:
 
 ```env
 VITE_API_URL=https://<your-api-project>.vercel.app/api
+VITE_DEMO_AUTO_LOGIN=false
 ```
 
 Notes:
 - `apps/web/vercel.json` rewrites all deep links to `index.html`, which is required for routes like `/verify/:token`.
 - If you want preview-to-preview API pairing, configure this through Vercel's monorepo + related-project workflow in the dashboard.
+- Set `VITE_DEMO_AUTO_LOGIN=true` only for a private guided demo where the URL is not shared broadly.
+
+## Cleanup Demo/Test Data
+
+After local smoke tests, remove obvious generated demo letters with:
+
+```bash
+npm run cleanup
+```
+
+The cleanup is intentionally scoped to known demo/test titles and C-number prefixes such as `Smoke Test Letter`, `Untitled letter`, `Official letter`, `Demo Draft`, `QR Audit Demo`, `Client Demo Approved Letter`, `C-DEMO`, and `C-QR-DEMO`. Do not broaden this script for a client database without reviewing the match patterns first.
 
 ## Preview Flow
 
