@@ -6,3 +6,9 @@ apps/api/error_*.json
 apps/web/playwright-report/
 apps/web/test-results/
 apps/api/dist/
+.omg/
+.playwright-cli/
+.vercel-demo/
+tsc_errors.txt
+tsc_out.txt
+demo-*.png

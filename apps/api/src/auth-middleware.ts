@@ -19,6 +19,9 @@ const isLocalDevRequest = (req: Request) => {
     return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 };
 
+const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
+const DEMO_ROLES = ['ADMIN', 'APPROVER', 'ISSUER'];
+
 const attachFirstAvailableUser = async (req: Request): Promise<boolean> => {
     const users = await query<{ id: string }>('SELECT id FROM users ORDER BY id ASC LIMIT 1');
     if (users.length === 0) {
@@ -46,8 +49,9 @@ export const authMiddleware = () => async (
     res: Response,
     next: NextFunction
 ) => {
-    // DEMO MODE BYPASS
-    if (process.env.DEMO_MODE === 'true') {
+    const authHeader = req.headers.authorization;
+
+    if (process.env.DEMO_MODE === 'true' && !authHeader) {
         if (await attachFirstAvailableUser(req)) {
             return next();
         }
@@ -58,8 +62,6 @@ export const authMiddleware = () => async (
         };
         return next();
     }
-
-    const authHeader = req.headers.authorization;
 
     if (!authHeader) {
         if (isLocalDevRequest(req) && await attachFirstAvailableUser(req)) {
@@ -77,6 +79,13 @@ export const authMiddleware = () => async (
         // Verify user exists
         const users = await query<{ id: string }>('SELECT id FROM users WHERE id = ?', [userId]);
         if (users.length === 0) {
+            if (process.env.DEMO_MODE === 'true' && userId === DEMO_USER_ID) {
+                req.user = {
+                    id: DEMO_USER_ID,
+                    roles: DEMO_ROLES
+                };
+                return next();
+            }
             return res.status(401).json({ error: 'User not found' });
         }
 
@@ -93,6 +102,9 @@ export const authMiddleware = () => async (
 
         next();
     } catch (err) {
+        if (process.env.DEMO_MODE === 'true' && await attachFirstAvailableUser(req)) {
+            return next();
+        }
         if (isLocalDevRequest(req) && await attachFirstAvailableUser(req)) {
             return next();
         }

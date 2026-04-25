@@ -1,13 +1,15 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
 import { query, queryOne, execute } from './db';
+import { uuidv4 } from './uuid';
 
 const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
+const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
+const DEMO_EMAIL = 'admin@mcc.local';
 
 export function signToken(userId: string): string {
     return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -37,7 +39,7 @@ async function getFirstAvailableUser() {
     };
 }
 
-router.post('/auth/register', async (req: Request, res: Response) => {
+const registerHandler = async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -72,9 +74,9 @@ router.post('/auth/register', async (req: Request, res: Response) => {
         const message = err instanceof Error ? err.message : 'Registration failed';
         res.status(500).json({ error: message });
     }
-});
+};
 
-router.post('/auth/login', async (req: Request, res: Response) => {
+const loginHandler = async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -97,10 +99,10 @@ router.post('/auth/login', async (req: Request, res: Response) => {
             }
         }
 
-        if (!user && process.env.DEMO_MODE === 'true' && email === 'admin@mcc.local') {
+        if (!user && process.env.DEMO_MODE === 'true' && email === DEMO_EMAIL) {
             user = {
-                id: '00000000-0000-0000-0000-000000000001',
-                email: 'admin@mcc.local',
+                id: DEMO_USER_ID,
+                email: DEMO_EMAIL,
                 password_hash: await bcrypt.hash('admin123', 10)
             };
         }
@@ -145,9 +147,9 @@ router.post('/auth/login', async (req: Request, res: Response) => {
         const message = err instanceof Error ? err.message : 'Login failed';
         res.status(500).json({ error: message });
     }
-});
+};
 
-router.get('/auth/me', async (req: Request, res: Response) => {
+const meHandler = async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         if (process.env.DEMO_MODE === 'true') {
@@ -170,6 +172,12 @@ router.get('/auth/me', async (req: Request, res: Response) => {
 
         if (!user) {
             if (process.env.DEMO_MODE === 'true') {
+                if (payload.sub === DEMO_USER_ID) {
+                    return res.json({
+                        user: { id: DEMO_USER_ID, email: DEMO_EMAIL },
+                        roles: ['ADMIN', 'APPROVER', 'ISSUER'],
+                    });
+                }
                 const fallback = await getFirstAvailableUser();
                 if (fallback) {
                     return res.json(fallback);
@@ -196,6 +204,15 @@ router.get('/auth/me', async (req: Request, res: Response) => {
         }
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
-});
+};
+
+router.post('/auth/register', registerHandler);
+router.post('/register', registerHandler);
+
+router.post('/auth/login', loginHandler);
+router.post('/login', loginHandler);
+
+router.get('/auth/me', meHandler);
+router.get('/me', meHandler);
 
 export default router;

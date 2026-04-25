@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Authentication', () => {
-    test('shows email/password form when unauthenticated', async ({ page }) => {
+    test('auto-enters the demo workspace without a login form', async ({ page }) => {
         await page.goto('/');
 
-        await expect(page.getByPlaceholder('Email')).toBeVisible();
-        await expect(page.getByPlaceholder('Password')).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'My Tasks' })).toBeVisible();
+        await expect(page.getByText('admin@mcc.local')).toBeVisible();
+        await expect(page.getByPlaceholder('Email')).toHaveCount(0);
     });
 });

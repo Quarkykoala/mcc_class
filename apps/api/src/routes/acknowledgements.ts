@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { execute, query, queryOne } from '../db';
 import { canAccessLetter } from '../letters/letter-helpers';
 import { acknowledgeSchema } from '../validation/letters';
 import { isAdmin } from '../auth/roles';
+import { uuidv4 } from '../uuid';
 
 export const acknowledgementsRoutes = () => {
     const router = Router();

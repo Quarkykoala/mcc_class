@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { APPROVAL_MODES } from '@mcc/shared';
+import { APPROVAL_MODES } from '../shared-constants';
 
 const uuid = z.string().uuid();
 const uuidOrEmpty = z.union([uuid, z.literal('')]).optional().nullable();
@@ -11,6 +11,12 @@ export const createOrUpdateLetterSchema = z.object({
     content: z.string().min(1),
     title: z.string().optional().nullable(),
     job_reference: z.string().optional().nullable(),
+    to_text: z.string().optional().nullable(),
+    cc_text: z.string().optional().nullable(),
+    subject: z.string().optional().nullable(),
+    signature_name: z.string().optional().nullable(),
+    signature_title: z.string().optional().nullable(),
+    template_key: z.string().optional().nullable(),
     department_id: uuidOrEmpty,
     committee_id: uuidOrEmpty,
 });

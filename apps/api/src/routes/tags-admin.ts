@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { execute, queryOne } from '../db';
 import { normalizeUuidList } from '../letters/letter-helpers';
 import { isAdmin } from '../auth/roles';
 import { clearMasterListCache } from '../repositories/master-lists';
+import { uuidv4 } from '../uuid';
 
 export const tagsAdminRoutes = () => {
     const router = Router();

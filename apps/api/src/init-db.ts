@@ -2,8 +2,8 @@ import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
+import { uuidv4 } from './uuid';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 

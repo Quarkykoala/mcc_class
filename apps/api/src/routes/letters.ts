@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { buildContentHash, normalizeTagIds, generateIssuancePdf } from '../letter-utils';
 import { handleLetterVersionUpdate } from '../version-manager';
 import { execute, query, queryOne, transaction, queryOneWithConn, queryWithConn, executeWithConn } from '../db';
@@ -17,12 +16,17 @@ import {
     printSchema,
     deadlineSchema,
 } from '../validation/letters';
+import { uuidv4 } from '../uuid';
+import { getDemoLetter, isDemoMode, listDemoLetters, saveDemoLetter } from '../demo-store';
 
 export const lettersRoutes = () => {
     const router = Router();
 
     router.get('/letters', async (req: Request, res: Response) => {
         try {
+            if (isDemoMode()) {
+                return res.json(listDemoLetters(typeof req.query.context === 'string' ? req.query.context : null));
+            }
             const result = await listLetters({
                 context: typeof req.query.context === 'string' ? req.query.context : null,
                 status: typeof req.query.status === 'string' ? req.query.status : null,
@@ -75,6 +79,11 @@ export const lettersRoutes = () => {
     router.get('/letters/:id', async (req: Request, res: Response) => {
         try {
             const { id } = req.params;
+            if (isDemoMode()) {
+                const demoLetter = getDemoLetter(id);
+                if (!demoLetter) return res.status(404).json({ error: 'Letter not found' });
+                return res.json(demoLetter);
+            }
             const userId = req.user?.id || '';
             const admin = isAdmin(req);
             const optionalLetterColumns = await pickExistingColumns('letters', [
@@ -85,6 +94,12 @@ export const lettersRoutes = () => {
                 'rejection_reason',
                 'approval_mode',
                 'source_ip',
+                'to_text',
+                'cc_text',
+                'subject',
+                'signature_name',
+                'signature_title',
+                'template_key',
             ]);
             const letter = await queryOne<any>(
                 `SELECT l.id, l.context, l.department_id, l.status, l.content, l.created_by, l.created_at, l.updated_at${
@@ -102,6 +117,29 @@ export const lettersRoutes = () => {
         }
     });
 
+    router.get('/letters/:id/audit-logs', async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params;
+            if (isDemoMode()) {
+                return res.json([]);
+            }
+            const userId = req.user?.id || '';
+            const admin = isAdmin(req);
+
+            const letter = await queryOne<any>('SELECT department_id, created_by FROM letters WHERE id = ?', [id]);
+            if (!letter) return res.status(404).json({ error: 'Letter not found' });
+            if (!(await canAccessLetter(userId, admin, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+
+            const logs = await query<any>(
+                "SELECT * FROM audit_logs WHERE entity_type = 'LETTER' AND entity_id = ? ORDER BY created_at DESC",
+                [id]
+            );
+            res.json(logs);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     router.post('/letters', async (req: Request, res: Response) => {
         try {
             const userId = req.user?.id;
@@ -113,13 +151,40 @@ export const lettersRoutes = () => {
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid payload' });
             }
-            const { id, context, tag_ids, content, title, job_reference, department_id, committee_id } = parsed.data;
+            const { id, context, tag_ids, content, title, job_reference, to_text, cc_text, subject, signature_name, signature_title, template_key, department_id, committee_id } = parsed.data;
             if (!id && !context) {
                 return res.status(400).json({ error: 'context is required for new letters.' });
             }
             const createContext = context ?? 'COMPANY';
+            if (isDemoMode()) {
+                if (committee_id) {
+                    return res.status(400).json({ error: 'Committee workflow is not available in demo mode.' });
+                }
+                const demoLetter = saveDemoLetter({
+                    id,
+                    context: createContext,
+                    content,
+                    userId,
+                    title: title ?? null,
+                    job_reference: job_reference ?? null,
+                    to_text: to_text ?? null,
+                    cc_text: cc_text ?? null,
+                    subject: subject ?? null,
+                    signature_name: signature_name ?? null,
+                    signature_title: signature_title ?? null,
+                    template_key: template_key ?? null,
+                    department_id: department_id ?? null,
+                });
+                return res.status(id ? 200 : 201).json(demoLetter);
+            }
             const hasTitle = Object.prototype.hasOwnProperty.call(req.body, 'title');
             const hasJobReference = Object.prototype.hasOwnProperty.call(req.body, 'job_reference');
+            const hasToText = Object.prototype.hasOwnProperty.call(req.body, 'to_text');
+            const hasCcText = Object.prototype.hasOwnProperty.call(req.body, 'cc_text');
+            const hasSubject = Object.prototype.hasOwnProperty.call(req.body, 'subject');
+            const hasSignatureName = Object.prototype.hasOwnProperty.call(req.body, 'signature_name');
+            const hasSignatureTitle = Object.prototype.hasOwnProperty.call(req.body, 'signature_title');
+            const hasTemplateKey = Object.prototype.hasOwnProperty.call(req.body, 'template_key');
             const deptId = department_id === '' ? null : department_id ?? null;
             const committeeId = committee_id === '' ? null : committee_id ?? null;
             const source_ip = req.ip || '0.0.0.0';
@@ -128,11 +193,23 @@ export const lettersRoutes = () => {
                 'title',
                 'job_reference',
                 'source_ip',
+                'to_text',
+                'cc_text',
+                'subject',
+                'signature_name',
+                'signature_title',
+                'template_key',
             ]);
             const hasCommitteeColumn = letterColumns.includes('committee_id');
             const hasTitleColumn = letterColumns.includes('title');
             const hasJobReferenceColumn = letterColumns.includes('job_reference');
             const hasSourceIpColumn = letterColumns.includes('source_ip');
+            const hasToTextColumn = letterColumns.includes('to_text');
+            const hasCcTextColumn = letterColumns.includes('cc_text');
+            const hasSubjectColumn = letterColumns.includes('subject');
+            const hasSignatureNameColumn = letterColumns.includes('signature_name');
+            const hasSignatureTitleColumn = letterColumns.includes('signature_title');
+            const hasTemplateKeyColumn = letterColumns.includes('template_key');
             const hasUpdatedAtColumn = await tableHasColumn('letters', 'updated_at');
             const auditHasSourceIpColumn = await tableHasColumn('audit_logs', 'source_ip');
 
@@ -149,6 +226,12 @@ export const lettersRoutes = () => {
                 if (hasUpdatedAtColumn) { setClauses.push('updated_at = NOW()'); }
                 if (hasTitle && hasTitleColumn) { setClauses.push('title = ?'); updateParams.push(title ?? null); }
                 if (hasJobReference && hasJobReferenceColumn) { setClauses.push('job_reference = ?'); updateParams.push(job_reference ?? null); }
+                if (hasToText && hasToTextColumn) { setClauses.push('to_text = ?'); updateParams.push(to_text ?? null); }
+                if (hasCcText && hasCcTextColumn) { setClauses.push('cc_text = ?'); updateParams.push(cc_text ?? null); }
+                if (hasSubject && hasSubjectColumn) { setClauses.push('subject = ?'); updateParams.push(subject ?? null); }
+                if (hasSignatureName && hasSignatureNameColumn) { setClauses.push('signature_name = ?'); updateParams.push(signature_name ?? null); }
+                if (hasSignatureTitle && hasSignatureTitleColumn) { setClauses.push('signature_title = ?'); updateParams.push(signature_title ?? null); }
+                if (hasTemplateKey && hasTemplateKeyColumn) { setClauses.push('template_key = ?'); updateParams.push(template_key ?? null); }
                 updateParams.push(id);
                 await execute(`UPDATE letters SET ${setClauses.join(', ')} WHERE id = ?`, updateParams);
 
@@ -193,6 +276,12 @@ export const lettersRoutes = () => {
                 if (hasSourceIpColumn) { cols.push('source_ip'); vals.push(source_ip); }
                 if (hasTitle && hasTitleColumn) { cols.push('title'); vals.push(title ?? null); }
                 if (hasJobReference && hasJobReferenceColumn) { cols.push('job_reference'); vals.push(job_reference ?? null); }
+                if (hasToText && hasToTextColumn) { cols.push('to_text'); vals.push(to_text ?? null); }
+                if (hasCcText && hasCcTextColumn) { cols.push('cc_text'); vals.push(cc_text ?? null); }
+                if (hasSubject && hasSubjectColumn) { cols.push('subject'); vals.push(subject ?? null); }
+                if (hasSignatureName && hasSignatureNameColumn) { cols.push('signature_name'); vals.push(signature_name ?? null); }
+                if (hasSignatureTitle && hasSignatureTitleColumn) { cols.push('signature_title'); vals.push(signature_title ?? null); }
+                if (hasTemplateKey && hasTemplateKeyColumn) { cols.push('template_key'); vals.push(template_key ?? null); }
                 const placeholders = cols.map(() => '?').join(', ');
                 await execute(`INSERT INTO letters (${cols.join(', ')}) VALUES (${placeholders})`, vals);
 
@@ -351,17 +440,10 @@ export const lettersRoutes = () => {
             await execute('INSERT INTO approvals (id, letter_id, approver_id, comment, source_ip) VALUES (?, ?, ?, ?, ?)',
                 [uuidv4(), id, userId, comment ?? null, source_ip]);
 
-            let approved = 0;
-            let total = 0;
-            let quorumReached = false;
-            if (admin) {
-                quorumReached = true;
-            } else {
-                const assignments = await query<any>('SELECT decision FROM letter_approver_assignments WHERE letter_id = ?', [id]);
-                approved = assignments.filter((a: any) => a.decision === 'APPROVED').length;
-                total = assignments.length;
-                quorumReached = total > 0 && approved === total;
-            }
+            const assignments = await query<any>('SELECT decision FROM letter_approver_assignments WHERE letter_id = ?', [id]);
+            const approved = assignments.filter((a: any) => a.decision === 'APPROVED').length;
+            const total = assignments.length;
+            const quorumReached = admin || (total > 0 && approved === total);
 
             if (quorumReached) {
                 await execute('UPDATE letters SET status = ?, updated_at = NOW() WHERE id = ?', ['APPROVED', id]);
@@ -564,8 +646,8 @@ export const lettersRoutes = () => {
             const letter = await queryOne<any>('SELECT status, committee_id, department_id, created_by FROM letters WHERE id = ?', [id]);
             if (!letter) return res.status(404).json({ error: 'Letter not found' });
             if (!(await canAccessLetter(userId, admin, letter))) return res.status(403).json({ error: 'Not authorized for this letter.' });
+            if (!canTransition(letter.status, 'REJECTED')) return res.status(400).json({ error: 'Only SUBMITTED letters can be rejected.' });
             if (!letter.committee_id) {
-                if (!canTransition(letter.status, 'REJECTED')) return res.status(400).json({ error: 'Only SUBMITTED non-committee letters can be rejected.' });
                 if (!admin) {
                     const assignment = await queryOne<any>(
                         'SELECT id FROM letter_approver_assignments WHERE letter_id = ? AND approver_id = ?',

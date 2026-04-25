@@ -4,8 +4,8 @@ import { LetterWorkspace } from './components/LetterWorkspace';
 import { DemoDebugMenu } from './components/DemoDebugMenu';
 import { Dashboard } from './components/Dashboard';
 import { AppShell } from './components/AppShell';
-
-const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:3000/api');
+import { MyTasks } from './components/MyTasks';
+import { API_BASE } from './lib/api';
 const isVerificationRoute = typeof window !== 'undefined' && window.location.pathname.includes('/verify/');
 const WORKSPACE_CONTEXT = 'COMPANY';
 const PAGE_SIZE = 50;
@@ -16,6 +16,40 @@ type ApproverOption = {
   label: string;
   roles: string[];
 };
+
+type LetterTemplate = {
+  key: string;
+  label: string;
+  description: string;
+  title: string;
+  subject: string;
+  content: string;
+  to_text: string;
+  cc_text: string;
+};
+
+const LETTER_TEMPLATES: LetterTemplate[] = [
+  {
+    key: 'blank',
+    label: 'Blank letter',
+    description: 'Start with an empty draft and fill each section yourself.',
+    title: 'Untitled letter',
+    subject: '',
+    content: 'Start drafting here.',
+    to_text: '',
+    cc_text: ''
+  },
+  {
+    key: 'official',
+    label: 'Official template',
+    description: 'Prefill the common MCC letter structure with editable sections.',
+    title: 'Official letter',
+    subject: 'Subject:',
+    content: 'Dear Sir/Madam,\n\nPlease write the draft content here.\n\nRegards,',
+    to_text: 'To,\nRecipient name\nRecipient designation',
+    cc_text: 'CC:'
+  }
+];
 
 const parseCollection = <T,>(payload: unknown): T[] => {
   if (Array.isArray(payload)) return payload;
@@ -31,24 +65,37 @@ const formatApproverLabel = (id: string, roles: string[]) => {
   return `${roleLabel} - ${shortId}`;
 };
 
+const deriveDisplayName = (email?: string) => {
+  if (!email) return 'Authorized Signatory';
+  const localPart = email.split('@')[0] || email;
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [letters, setLetters] = useState<any[]>([]);
   const [tags, setTags] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<Letter[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verificationData, setVerificationData] = useState<any>(null);
-  const [view, setView] = useState<'workspace' | 'dashboard'>('workspace');
+  const [view, setView] = useState<'tasks' | 'workspace' | 'dashboard'>('tasks');
   const [selectedLetterId, setSelectedLetterId] = useState<string | null>(null);
 
   useEffect(() => {
-    auth.getSession().then(({ data }) => setSession(data.session));
+    auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setSession(data.session);
+      } else if (!isVerificationRoute) {
+        auth.signInWithPassword({ email: 'admin@mcc.local', password: 'admin123' });
+      }
+    });
     const { data: sub } = auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -86,10 +133,9 @@ export default function App() {
 
   const refresh = async () => {
     const contextQuery = encodeURIComponent(WORKSPACE_CONTEXT);
-    const [lettersResult, tagsResult, logsResult, approversResult, pendingResult] = await Promise.allSettled([
+    const [lettersResult, tagsResult, approversResult, pendingResult] = await Promise.allSettled([
       authedFetch(`/letters?context=${contextQuery}&page=1&limit=${PAGE_SIZE}`),
       authedFetch(`/tags?context=${contextQuery}`),
-      authedFetch('/audit-logs'),
       authedFetch('/approvers'),
       authedFetch(`/approvals/pending?context=${contextQuery}`)
     ]);
@@ -109,11 +155,6 @@ export default function App() {
       setTags(parseCollection<any>(await tagsResult.value.json()));
     }
 
-    if (logsResult.status === 'fulfilled' && logsResult.value.ok) {
-      const logsJson = await logsResult.value.json();
-      setAuditLogs(Array.isArray(logsJson) ? logsJson : (logsJson.data || []));
-    }
-
     if (approversResult.status === 'fulfilled' && approversResult.value.ok) {
       const apiApprovers = parseCollection<any>(await approversResult.value.json())
         .filter((item) => typeof item?.id === 'string')
@@ -128,6 +169,30 @@ export default function App() {
     if (pendingResult.status === 'fulfilled' && pendingResult.value.ok) {
       setPendingApprovals(parseCollection<Letter>(await pendingResult.value.json()));
     }
+  };
+
+  const createLetterFromTemplate = async (templateKey: string) => {
+    const template = LETTER_TEMPLATES.find((item) => item.key === templateKey) || LETTER_TEMPLATES[0];
+    const signerName = deriveDisplayName(session?.user?.email);
+    const response = await fetchOrThrow('/letters', {
+      method: 'POST',
+      body: JSON.stringify({
+        context: WORKSPACE_CONTEXT,
+        title: template.title,
+        content: template.content || ' ',
+        tag_ids: [],
+        to_text: template.to_text,
+        cc_text: template.cc_text,
+        subject: template.subject,
+        signature_name: signerName,
+        signature_title: 'Authorized Signatory',
+        template_key: template.key
+      })
+    });
+    const createdLetter = await response.json();
+    await refresh();
+    if (typeof createdLetter?.id === 'string') setSelectedLetterId(createdLetter.id);
+    setView('workspace');
   };
 
   useEffect(() => {
@@ -166,72 +231,8 @@ export default function App() {
 
   if (!session) {
     return (
-      <div className="off-canvas-sidebar">
-        <div className="wrapper-full-page">
-          <div className="page-header login-page" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=1200)' }}>
-            <div className="container mx-auto px-4 relative z-10 flex justify-center">
-              <div className="w-full max-w-md">
-                <form className="form" onSubmit={(e) => e.preventDefault()}>
-                  <div className="card">
-                    <div className="card-header card-header-primary text-center">
-                      <h4 className="card-title font-bold">Login</h4>
-                      <div className="social-line flex justify-center gap-4 mt-4">
-                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-facebook-square"></i></a>
-                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-twitter"></i></a>
-                         <a href="#" className="btn btn-just-icon btn-link text-white"><i className="fa fa-google-plus"></i></a>
-                      </div>
-                    </div>
-                    <p className="description text-center mt-4 text-gray-500 font-medium">Or Be Classical</p>
-                    <div className="card-body px-8 py-4 space-y-6">
-                      <div className="input-group flex items-end gap-4">
-                        <div className="input-group-prepend">
-                          <span className="input-group-text"><i className="material-icons text-gray-400">email</i></span>
-                        </div>
-                        <input
-                          type="email"
-                          className="form-control"
-                          placeholder="Email..."
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                        />
-                      </div>
-                      <div className="input-group flex items-end gap-4">
-                        <div className="input-group-prepend">
-                          <span className="input-group-text"><i className="material-icons text-gray-400">lock_outline</i></span>
-                        </div>
-                        <input
-                          type="password"
-                          className="form-control"
-                          placeholder="Password..."
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                        />
-                      </div>
-                      
-                      <div className="bg-primary/5 p-4 rounded-lg border border-primary/10 flex items-start gap-3 mt-8">
-                         <i className="material-icons text-primary">info</i>
-                         <div className="text-[11px] font-bold text-primary uppercase leading-tight">
-                            Demo account: admin@mcc.local / admin123
-                         </div>
-                      </div>
-                    </div>
-                    <div className="footer text-center pb-8 pt-4">
-                      <button
-                        className="btn btn-primary btn-link btn-lg font-bold text-sm uppercase"
-                        onClick={async () => {
-                          const result = await auth.signInWithPassword({ email, password });
-                          if (result.error) alert(result.error);
-                        }}
-                      >
-                        Get Started
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <p className="text-gray-500 font-medium">Auto-logging into demo...</p>
       </div>
     );
   }
@@ -240,35 +241,32 @@ export default function App() {
     <AppShell
       activeView={view}
       onChangeView={setView}
-      onNewLetter={async () => {
-        const response = await fetchOrThrow('/letters', {
-          method: 'POST',
-          body: JSON.stringify({
-            context: WORKSPACE_CONTEXT,
-            title: 'Untitled letter',
-            content: 'Start writing your letter here.',
-            tag_ids: []
-          })
-        });
-        const createdLetter = await response.json();
-        await refresh();
-        if (typeof createdLetter?.id === 'string') setSelectedLetterId(createdLetter.id);
-        setView('workspace');
-      }}
-      onSignOut={() => auth.signOut()}
+      onNewBlankLetter={() => void createLetterFromTemplate('blank')}
+      onNewTemplateLetter={() => void createLetterFromTemplate('official')}
       email={session?.user?.email}
+      pendingTaskCount={pendingApprovals.length}
     >
       {view === 'dashboard' ? (
         <Dashboard />
+      ) : view === 'tasks' ? (
+        <MyTasks
+          currentUserId={session?.user?.id}
+          letters={letters}
+          pendingApprovals={pendingApprovals}
+          onOpenLetter={(id) => {
+            setSelectedLetterId(id);
+            setView('workspace');
+          }}
+        />
       ) : (
         <LetterWorkspace
           selectedId={selectedLetterId}
           onSelectLetter={setSelectedLetterId}
           letters={letters}
           tags={tags}
-          auditLogs={auditLogs}
           approvers={approvers}
           pendingApprovals={pendingApprovals}
+          currentUserLabel={deriveDisplayName(session?.user?.email)}
           hasMore={hasMore}
           onLoadMore={async () => {
              if (loadingMore || !hasMore) return;

@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 
 type AppShellProps = {
-  activeView: 'workspace' | 'dashboard';
-  onChangeView: (view: 'workspace' | 'dashboard') => void;
-  onNewLetter: () => void;
-  onSignOut: () => void;
+  activeView: 'tasks' | 'workspace' | 'dashboard';
+  onChangeView: (view: 'tasks' | 'workspace' | 'dashboard') => void;
+  onNewBlankLetter: () => void;
+  onNewTemplateLetter: () => void;
   email?: string;
+  pendingTaskCount?: number;
   children: ReactNode;
 };
 
-export function AppShell({ activeView, onChangeView, onNewLetter, onSignOut, email, children }: AppShellProps) {
+export function AppShell({ activeView, onChangeView, onNewBlankLetter, onNewTemplateLetter, email, pendingTaskCount = 0, children }: AppShellProps) {
   return (
     <div className="wrapper">
       <div className="sidebar" data-color="purple" data-background-color="black">
@@ -20,6 +21,12 @@ export function AppShell({ activeView, onChangeView, onNewLetter, onSignOut, ema
         </div>
         <div className="sidebar-wrapper">
           <ul className="nav">
+            <li className={activeView === 'tasks' ? 'active' : ''}>
+              <a href="#" onClick={(e) => { e.preventDefault(); onChangeView('tasks'); }}>
+                <i className="material-icons">task</i>
+                <p>My Tasks {pendingTaskCount > 0 ? `(${pendingTaskCount})` : ''}</p>
+              </a>
+            </li>
             <li className={activeView === 'workspace' ? 'active' : ''}>
               <a href="#" onClick={(e) => { e.preventDefault(); onChangeView('workspace'); }}>
                 <i className="material-icons">edit_note</i>
@@ -55,24 +62,24 @@ export function AppShell({ activeView, onChangeView, onNewLetter, onSignOut, ema
           <div className="container-fluid px-6 flex justify-between items-center w-full">
             <div className="navbar-wrapper">
               <a className="navbar-brand" href="#">
-                {activeView === 'workspace' ? 'Letter Workspace' : 'Operational Dashboard'}
+                {activeView === 'tasks' ? 'My Tasks' : activeView === 'workspace' ? 'Letter Workspace' : 'Operational Dashboard'}
               </a>
             </div>
             
             <div className="flex items-center gap-4">
                <button
-                 onClick={onNewLetter}
-                 className="btn btn-primary btn-round flex items-center gap-2 px-4 py-2 shadow-sm"
+                 onClick={onNewBlankLetter}
+                 className="btn btn-white btn-round flex items-center gap-2 px-4 py-2 shadow-sm"
                >
                  <i className="material-icons text-lg">add</i>
-                 <span className="text-xs font-bold">NEW LETTER</span>
+                 <span className="text-xs font-bold">BLANK LETTER</span>
                </button>
                <button
-                 onClick={onSignOut}
-                 className="btn btn-white btn-round btn-just-icon flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                 onClick={onNewTemplateLetter}
+                 className="btn btn-primary btn-round flex items-center gap-2 px-4 py-2 shadow-sm"
                >
-                 <i className="material-icons text-lg">logout</i>
-                 <span className="text-xs font-bold">LOGOUT</span>
+                 <i className="material-icons text-lg">description</i>
+                 <span className="text-xs font-bold">USE TEMPLATE</span>
                </button>
             </div>
           </div>

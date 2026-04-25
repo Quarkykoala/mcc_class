@@ -42,7 +42,7 @@ function saveToStorage(session: AuthSession | null) {
 export const auth = {
     async signInWithPassword({ email, password }: { email: string; password: string }): Promise<{ data?: AuthSession; error?: string }> {
         try {
-            const res = await fetch(`${API_BASE}/auth/login`, {
+            const res = await fetch(`${API_BASE}/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
@@ -76,7 +76,7 @@ export const auth = {
             currentSession = loadFromStorage();
             if (currentSession) {
                 try {
-                    const res = await fetch(`${API_BASE}/auth/me`, {
+                    const res = await fetch(`${API_BASE}/me`, {
                         headers: { Authorization: `Bearer ${currentSession.access_token}` },
                     });
                     if (!res.ok) {

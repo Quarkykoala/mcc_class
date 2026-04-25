@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS letters (
     content TEXT,
     title VARCHAR(500),
     job_reference VARCHAR(255),
+    to_text TEXT,
+    cc_text TEXT,
+    subject VARCHAR(500),
+    signature_name VARCHAR(255),
+    signature_title VARCHAR(255),
+    template_key VARCHAR(100),
     letter_number BIGINT UNIQUE DEFAULT NULL,
     approval_mode VARCHAR(10) NOT NULL DEFAULT 'ALL',
     rejected_at DATETIME DEFAULT NULL,
@@ -155,7 +161,6 @@ CREATE TABLE IF NOT EXISTS approvals (
     FOREIGN KEY (letter_id) REFERENCES letters(id),
     FOREIGN KEY (approver_id) REFERENCES users(id)
 );
-CREATE INDEX idx_committee_approvals_letter ON committee_approvals(letter_id);
 CREATE INDEX idx_approvals_letter ON approvals(letter_id);
 CREATE INDEX idx_approvals_created_at ON approvals(created_at DESC);
 
@@ -171,6 +176,7 @@ CREATE TABLE IF NOT EXISTS committee_approvals (
     FOREIGN KEY (committee_id) REFERENCES committees(id) ON DELETE CASCADE,
     FOREIGN KEY (approver_id) REFERENCES users(id)
 );
+CREATE INDEX idx_committee_approvals_letter ON committee_approvals(letter_id);
 
 -- 14. Issuances
 CREATE TABLE IF NOT EXISTS issuances (
@@ -305,6 +311,23 @@ CREATE TABLE IF NOT EXISTS letter_attachments (
 );
 
 CREATE INDEX idx_letter_attachments_letter ON letter_attachments(letter_id);
+
+-- 22b. Letter Voice Notes
+CREATE TABLE IF NOT EXISTS letter_voice_notes (
+    id CHAR(36) PRIMARY KEY,
+    letter_id CHAR(36) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    note_text TEXT,
+    audio_data LONGTEXT NOT NULL,
+    mime_type VARCHAR(255) NOT NULL,
+    duration_seconds INT,
+    created_by CHAR(36),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (letter_id) REFERENCES letters(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX idx_letter_voice_notes_letter ON letter_voice_notes(letter_id);
 
 -- 23. Approval Deadlines
 CREATE TABLE IF NOT EXISTS approval_deadlines (

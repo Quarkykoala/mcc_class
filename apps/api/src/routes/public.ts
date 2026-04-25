@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { getDepartments, getTags } from '../repositories/master-lists';
 import { query, queryOne, execute } from '../db';
 import { buildVerificationResponse } from '../letter-utils';
+import { uuidv4 } from '../uuid';
 
 export const publicRoutes = () => {
     const router = Router();

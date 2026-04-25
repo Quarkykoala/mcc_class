@@ -22,6 +22,12 @@ export async function listLetters(params: {
         'approval_mode',
         'created_by',
         'department_id',
+        'to_text',
+        'cc_text',
+        'subject',
+        'signature_name',
+        'signature_title',
+        'template_key',
     ]);
     const {
         context,
@@ -96,6 +102,12 @@ export async function getLetterDetail(id: string, userId: string, isAdmin: boole
         'rejection_reason',
         'approval_mode',
         'source_ip',
+        'to_text',
+        'cc_text',
+        'subject',
+        'signature_name',
+        'signature_title',
+        'template_key',
     ]);
     const letter = await queryOne<any>(
         `SELECT l.id, l.context, l.department_id, l.status, l.content, l.created_by, l.created_at, l.updated_at${
@@ -120,6 +132,12 @@ export async function listPendingApprovals(userId: string, isAdmin: boolean, con
         'approval_mode',
         'created_by',
         'department_id',
+        'to_text',
+        'cc_text',
+        'subject',
+        'signature_name',
+        'signature_title',
+        'template_key',
     ]);
     const pendingAssignments = await query<{ letter_id: string }>(
         'SELECT DISTINCT letter_id FROM letter_approver_assignments WHERE approver_id = ? AND decision = ?',

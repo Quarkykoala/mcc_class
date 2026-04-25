@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { query, execute } from '../db';
 import { demoCleanupSchema } from '../validation/letters';
 import { isAdmin, isApprover } from '../auth/roles';
+import { uuidv4 } from '../uuid';
 
 export const demoRoutes = () => {
     const router = Router();

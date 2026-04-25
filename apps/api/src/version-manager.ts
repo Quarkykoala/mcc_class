@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
 import { queryOne, execute } from './db';
+import { uuidv4 } from './uuid';
 
 export const handleLetterVersionUpdate = async (
     letterId: string,

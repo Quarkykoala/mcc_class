@@ -11,3 +11,5 @@ if (require.main === module) {
         console.log(`API server running on http://localhost:${port}`);
     });
 }
+
+export default app;

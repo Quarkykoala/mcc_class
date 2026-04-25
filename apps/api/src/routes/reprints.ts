@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { queryOne, query, execute } from '../db';
 import { reprintSchema } from '../validation/letters';
 import { isAdmin, isApprover } from '../auth/roles';
+import { uuidv4 } from '../uuid';
 
 export const reprintsRoutes = () => {
     const router = Router();

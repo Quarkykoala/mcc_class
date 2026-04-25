@@ -1,4 +1,4 @@
-import { LetterStatus } from '@mcc/shared';
+import { LetterStatus } from '../shared-constants';
 
 const transitions: Record<LetterStatus, LetterStatus[]> = {
     DRAFT: ['SUBMITTED'],

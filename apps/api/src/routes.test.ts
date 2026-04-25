@@ -57,9 +57,19 @@ describe('approval routing flows', () => {
   it('supports create endpoint with title/job_reference', async () => {
     mockQueryOne
       .mockResolvedValueOnce({ id: 'dept-1' })
-      .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001' });
+      .mockResolvedValueOnce({ id: 'new-id', status: 'DRAFT', title: 'Offer Letter', job_reference: 'JR-1001', to_text: 'Client', cc_text: 'Ops', subject: 'Offer', signature_name: 'Alex', signature_title: 'Manager', template_key: 'official' });
     const res = await request(app).post('/api/letters').send({
-      context: 'COMPANY', content: 'Draft content', title: 'Offer Letter', job_reference: 'JR-1001', tag_ids: []
+      context: 'COMPANY',
+      content: 'Draft content',
+      title: 'Offer Letter',
+      job_reference: 'JR-1001',
+      to_text: 'Client',
+      cc_text: 'Ops',
+      subject: 'Offer',
+      signature_name: 'Alex',
+      signature_title: 'Manager',
+      template_key: 'official',
+      tag_ids: []
     });
     expect(res.status).toBe(201);
   });
@@ -88,4 +98,21 @@ describe('approval routing flows', () => {
     const approverOne = res.body.find((item: any) => item.id === 'approver-1');
     expect(approverOne?.roles).toEqual(expect.arrayContaining(['ADMIN', 'APPROVER']));
   });
+
+  it('POST /api/letters/bulk should return 404 after removal', async () => {
+    const res = await request(app)
+      .post('/api/letters/bulk')
+      .send({ action: 'approve', letter_ids: ['1'] });
+    expect(res.status).toBe(404);
+  });
+
+  it('supports GET /api/letters/:id/audit-logs happy path', async () => {
+    mockQueryOne.mockResolvedValueOnce({ id: 'l1', department_id: 'd1', created_by: 'approver-1' });
+    mockQuery.mockResolvedValueOnce([{ id: 'log1', action: 'CREATE' }, { id: 'log2', action: 'SUBMIT' }]);
+    const res = await request(app).get('/api/letters/l1/audit-logs');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(2);
+  });
+
 });

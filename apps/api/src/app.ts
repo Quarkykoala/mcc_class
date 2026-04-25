@@ -14,7 +14,6 @@ import { auditRoutes } from './routes/audit';
 import { committeesRoutes } from './routes/committees';
 import { tagsAdminRoutes } from './routes/tags-admin';
 import { demoRoutes } from './routes/demo';
-import { bulkRoutes } from './routes/bulk';
 import { analyticsRoutes } from './routes/analytics';
 import { attachmentsRoutes } from './routes/attachments';
 import { autoRoutingRoutes } from './routes/auto-routing';
@@ -33,7 +32,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'x-verify-key', 'ngrok-skip-browser-warning']
 }));
 app.options('*', cors());
-app.use(express.json());
+app.use(express.json({ limit: '12mb' }));
 
 app.get('/', (_req, res) => {
     res.send(`API is running. Use <a href="${clientUrl}">${clientUrl}</a> for the web app.`);
@@ -57,7 +56,6 @@ app.use('/api', auditRoutes());
 app.use('/api', committeesRoutes());
 app.use('/api', tagsAdminRoutes());
 app.use('/api', demoRoutes());
-app.use('/api', bulkRoutes());
 app.use('/api', analyticsRoutes());
 app.use('/api', attachmentsRoutes());
 app.use('/api', autoRoutingRoutes());

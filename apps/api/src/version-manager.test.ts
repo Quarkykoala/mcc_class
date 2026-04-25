@@ -10,7 +10,7 @@ vi.mock('./db', () => ({
     execute: (...args: unknown[]) => mockExecute(...args),
 }));
 
-vi.mock('uuid', () => ({ v4: () => 'test-uuid' }));
+vi.mock('./uuid', () => ({ uuidv4: () => 'test-uuid' }));
 
 describe('handleLetterVersionUpdate', () => {
     beforeEach(() => {

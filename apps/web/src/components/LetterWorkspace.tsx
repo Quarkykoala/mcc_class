@@ -1,9 +1,8 @@
 import React, { useMemo, useState, useRef } from 'react';
-import { LETTER_STATUSES } from '@mcc/shared';
 import { auth } from '../lib/auth';
+import { API_BASE } from '../lib/api';
 import { RichTextEditor } from './RichTextEditor';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+import { LETTER_STATUSES } from '../shared-constants';
 const STAGES = LETTER_STATUSES;
 type Stage = typeof STAGES[number];
 type Tag = { id: string; name: string };
@@ -19,9 +18,9 @@ type Props = {
   onSelectLetter: (id: string | null) => void;
   letters: Letter[];
   tags: Tag[];
-  auditLogs: any[];
   approvers: ApproverOption[];
   pendingApprovals: Letter[];
+  currentUserLabel: string;
   hasMore?: boolean;
   onLoadMore?: () => Promise<void>;
   loadingMore?: boolean;
@@ -40,19 +39,42 @@ const formatApproverFallback = (approverId: string) => {
   return approverId.length > 12 ? `User - ${approverId.slice(0, 8)}...${approverId.slice(-4)}` : `User - ${approverId}`;
 };
 
-export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, auditLogs, approvers, pendingApprovals, hasMore, onLoadMore, loadingMore, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
+const getHeaderStatusClass = (status: string) => {
+  const statusClasses: Record<string, string> = {
+    DRAFT: 'bg-white/20 text-white border border-white/30 backdrop-blur-sm',
+    SUBMITTED: 'bg-warning text-white',
+    APPROVED: 'bg-success text-white',
+    REJECTED: 'bg-danger text-white',
+    ISSUED: 'bg-info text-white',
+    REVOKED: 'bg-purple text-white',
+    AES_WAITING: 'bg-orange text-white',
+  };
+
+  return statusClasses[status] || 'bg-white/20 text-white border border-white/30';
+};
+
+export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, approvers, pendingApprovals, currentUserLabel, hasMore, onLoadMore, loadingMore, onCreateOrUpdate, onRoute, onSubmit, onApprove, onReject, onIssue, onPrint, onFetchLetter }: Props) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [toText, setToText] = useState('');
+  const [ccText, setCcText] = useState('');
+  const [subject, setSubject] = useState('');
+  const [signatureName, setSignatureName] = useState('');
+  const [signatureTitle, setSignatureTitle] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedApproverIds, setSelectedApproverIds] = useState<string[]>([]);
   const [jobReference, setJobReference] = useState('');
   const [showAudit, setShowAudit] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowLoading, setWorkflowLoading] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
+  const [libraryAttachments, setLibraryAttachments] = useState<any[]>([]);
+  const [selectedLibraryAttachmentId, setSelectedLibraryAttachmentId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isLinkingAttachment, setIsLinkingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedLetter = letters.find((letter) => letter.id === selectedId) ?? null;
@@ -66,6 +88,11 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
     if (!selectedLetter) {
       setTitle('');
       setContent('');
+      setToText('');
+      setCcText('');
+      setSubject('');
+      setSignatureName(currentUserLabel);
+      setSignatureTitle('Authorized Signatory');
       setSelectedTags([]);
       setSelectedApproverIds([]);
       setJobReference('');
@@ -73,6 +100,11 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
       return () => { disposed = true; };
     }
     setTitle(selectedLetter.title || '');
+    setToText(selectedLetter.to_text || '');
+    setCcText(selectedLetter.cc_text || '');
+    setSubject(selectedLetter.subject || '');
+    setSignatureName(selectedLetter.signature_name || currentUserLabel);
+    setSignatureTitle(selectedLetter.signature_title || 'Authorized Signatory');
     setSelectedTags((selectedLetter.letter_tags || []).map((item: any) => item.tag_id));
     setSelectedApproverIds(
       Array.from(new Set(
@@ -91,6 +123,11 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
         if (disposed) return;
         setContent(fullLetter.content || '');
         if (typeof fullLetter?.job_reference === 'string') setJobReference(fullLetter.job_reference);
+        if (typeof fullLetter?.to_text === 'string') setToText(fullLetter.to_text);
+        if (typeof fullLetter?.cc_text === 'string') setCcText(fullLetter.cc_text);
+        if (typeof fullLetter?.subject === 'string') setSubject(fullLetter.subject);
+        if (typeof fullLetter?.signature_name === 'string' && fullLetter.signature_name) setSignatureName(fullLetter.signature_name);
+        if (typeof fullLetter?.signature_title === 'string' && fullLetter.signature_title) setSignatureTitle(fullLetter.signature_title);
       }).catch((err) => {
         if (disposed) return;
         console.error('Failed to fetch letter content', err);
@@ -98,7 +135,7 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
       });
     }
     return () => { disposed = true; };
-  }, [selectedLetter?.id]);
+  }, [currentUserLabel, selectedLetter?.id]);
 
   const grouped = useMemo(() => {
     return STAGES.reduce((acc, stage) => {
@@ -124,6 +161,29 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
   const isSubmitted = selectedStatus === 'SUBMITTED';
   const isApproved = selectedStatus === 'APPROVED';
   const isIssued = selectedStatus === 'ISSUED';
+
+  const pendingTaskLetters = useMemo(() => {
+    const taskMap = new Map<string, Letter>();
+    for (const letter of letters) {
+      if (letter.status === 'DRAFT' || letter.status === 'SUBMITTED') {
+        taskMap.set(letter.id, letter);
+      }
+    }
+    for (const letter of pendingApprovals) {
+      if (letter?.id && letter.status !== 'APPROVED' && letter.status !== 'REJECTED') {
+        taskMap.set(letter.id, taskMap.get(letter.id) ?? letter);
+      }
+    }
+    return Array.from(taskMap.values()).sort((left, right) => {
+      const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
+      const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
+      return rightTime - leftTime;
+    });
+  }, [letters, pendingApprovals]);
+
+  const getActionButtonClass = (enabled: boolean, variant: string) => (
+    enabled ? `btn ${variant} btn-sm` : 'btn btn-disabled btn-sm'
+  );
 
   const toggleTag = (tagId: string) => {
     setSelectedTags((prev) => prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
@@ -154,6 +214,12 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
         context: selectedLetter?.context ?? 'COMPANY',
         content,
         title,
+        to_text: toText.trim() || null,
+        cc_text: ccText.trim() || null,
+        subject: subject.trim() || null,
+        signature_name: signatureName.trim() || null,
+        signature_title: signatureTitle.trim() || null,
+        template_key: selectedLetter?.template_key ?? null,
         tag_ids: selectedTags,
         job_reference: jobReference.trim() || null
       });
@@ -199,6 +265,24 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
     };
     fetchAttachments();
   }, [selectedLetter?.id]);
+
+  React.useEffect(() => {
+    const fetchLibraryAttachments = async () => {
+      const token = auth.getAccessToken();
+      if (!token) return;
+      try {
+        const res = await fetch(`${API_BASE}/attachments/library`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setLibraryAttachments(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    void fetchLibraryAttachments();
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedLetter?.id) return;
@@ -251,12 +335,51 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
     } catch (err) { console.error(err); }
   };
 
+  const handleLinkAttachment = async () => {
+    if (!selectedLetter?.id || !selectedLibraryAttachmentId) return;
+    setIsLinkingAttachment(true);
+    try {
+      const token = auth.getAccessToken();
+      if (!token) return;
+      const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ attachment_id: selectedLibraryAttachmentId }),
+      });
+      if (!res.ok) return;
+      const attRes = await fetch(`${API_BASE}/letters/${selectedLetter.id}/attachments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await attRes.json();
+      setAttachments(Array.isArray(data) ? data : []);
+      setSelectedLibraryAttachmentId('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLinkingAttachment(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
       <div className="card">
-        <div className="card-header card-header-primary">
-          <h4 className="card-title">Letter Workspace</h4>
-          <p className="card-category">Context scope: COMPANY</p>
+        <div className="card-header card-header-primary flex justify-between items-start">
+          <div>
+            <h4 className="card-title">Letter Workspace</h4>
+            <p className="card-category">Owning Department: {selectedLetter?.departments?.name || 'Unassigned'}</p>
+          </div>
+          {selectedLetter && (
+            <div className="flex flex-col items-end gap-2 mt-1 mr-1">
+              <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase shadow-sm ${getHeaderStatusClass(String(selectedLetter.status))}`}>
+                {selectedLetter.status}
+              </span>
+              {selectedLetter.job_reference && (
+                <span className="px-2 py-0.5 rounded bg-white/20 text-white text-xs font-medium border border-white/30 shadow-sm backdrop-blur-sm">
+                  C Number: {selectedLetter.job_reference}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="card-body pt-8 space-y-8">
           <div className="form-group">
@@ -267,17 +390,65 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
               className="form-control font-bold text-lg" 
             />
           </div>
-          <div className="form-group">
-            <input
-              value={jobReference}
-              onChange={(e) => setJobReference(e.target.value)}
-              placeholder="Job reference (optional)"
-              className="form-control text-sm"
-            />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="form-group">
+              <textarea
+                value={toText}
+                onChange={(e) => setToText(e.target.value)}
+                placeholder="To section"
+                rows={4}
+                className="form-control text-sm leading-relaxed"
+              />
+            </div>
+            <div className="space-y-4">
+              <div className="form-group">
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Subject"
+                  className="form-control text-sm"
+                />
+              </div>
+              <div className="form-group">
+                <input
+                  value={jobReference}
+                  onChange={(e) => setJobReference(e.target.value)}
+                  placeholder="C Number / Customs Job Reference (optional)"
+                  className="form-control text-sm"
+                />
+              </div>
+            </div>
           </div>
           
           <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
              <RichTextEditor value={content} onChange={setContent} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="form-group">
+              <textarea
+                value={ccText}
+                onChange={(e) => setCcText(e.target.value)}
+                placeholder="CC section"
+                rows={4}
+                className="form-control text-sm leading-relaxed"
+              />
+            </div>
+            <div className="p-6 rounded-xl bg-gray-50 border border-gray-100 space-y-3">
+              <p className="text-[11px] font-bold text-gray-400 uppercase">Signature</p>
+              <input
+                value={signatureName}
+                onChange={(e) => setSignatureName(e.target.value)}
+                placeholder="Signature name"
+                className="form-control text-sm"
+              />
+              <input
+                value={signatureTitle}
+                onChange={(e) => setSignatureTitle(e.target.value)}
+                placeholder="Signature title"
+                className="form-control text-sm"
+              />
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -298,7 +469,7 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
 
           <div className="p-6 rounded-xl bg-gray-50 border border-gray-100 space-y-4">
             <div className="flex justify-between items-center">
-              <p className="text-sm font-bold text-gray-700 uppercase">Routing & Approvers</p>
+              <p className="text-sm font-bold text-gray-700 uppercase">Department Routing</p>
               <p className="text-[10px] text-gray-400 font-bold uppercase italic">Tag defaults apply on route</p>
             </div>
             
@@ -352,6 +523,34 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
                   />
                 </label>
               </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+                <select
+                  className="form-control"
+                  value={selectedLibraryAttachmentId}
+                  onChange={(e) => setSelectedLibraryAttachmentId(e.target.value)}
+                  disabled={!selectedLetter || isLinkingAttachment}
+                >
+                  <option value="">Select an already uploaded customs file...</option>
+                  {libraryAttachments
+                    .filter((attachment) => !attachments.some((item) => item.file_name === attachment.file_name && item.file_path === attachment.file_path))
+                    .map((attachment) => (
+                      <option key={attachment.id} value={attachment.id}>
+                        {attachment.file_name}{attachment.letter_title ? ` - ${attachment.letter_title}` : ''}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-white border border-gray-200"
+                  onClick={() => void handleLinkAttachment()}
+                  disabled={!selectedLibraryAttachmentId || isLinkingAttachment}
+                >
+                  {isLinkingAttachment ? 'Linking...' : 'Use Uploaded File'}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400 font-medium">
+                You can upload a new file or attach one that was already uploaded elsewhere in the system.
+              </p>
               
               {!Array.isArray(attachments) || attachments.length === 0 ? (
                 <p className="text-xs text-gray-400 italic">No attachments for this letter.</p>
@@ -388,42 +587,42 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Lifecycle Actions</p>
               <div className="flex flex-wrap gap-2">
                 <button
-                  className="btn btn-info btn-sm"
+                  className={getActionButtonClass(isDraft && !workflowLoading, 'btn-info')}
                   disabled={!isDraft || !!workflowLoading}
                   onClick={() => runWorkflowAction('Route', () => onRoute(selectedLetter.id, { tag_ids: selectedTags, cc_approver_ids: selectedApproverIds, approval_mode: 'ALL', job_reference: jobReference.trim() || undefined }))}
                 >
                   <i className="material-icons text-base mr-1">route</i> Route
                 </button>
                 <button
-                  className="btn btn-warning btn-sm"
+                  className={getActionButtonClass(isDraft && !workflowLoading, 'btn-warning')}
                   disabled={!isDraft || !!workflowLoading}
                   onClick={() => runWorkflowAction('Submit', () => onSubmit(selectedLetter.id))}
                 >
                   <i className="material-icons text-base mr-1">send</i> Submit
                 </button>
                 <button
-                  className="btn btn-success btn-sm"
+                  className={getActionButtonClass(isSubmitted && !!selectedLetter?.canApprove && !workflowLoading, 'btn-success')}
                   disabled={!isSubmitted || !selectedLetter?.canApprove || !!workflowLoading}
                   onClick={() => runWorkflowAction('Approve', () => onApprove(selectedLetter.id))}
                 >
                   <i className="material-icons text-base mr-1">check</i> Approve
                 </button>
                 <button
-                  className="btn btn-danger btn-sm"
+                  className={getActionButtonClass(isSubmitted && !!selectedLetter?.canApprove && !workflowLoading, 'btn-danger')}
                   disabled={!isSubmitted || !selectedLetter?.canApprove || !!workflowLoading}
                   onClick={() => runWorkflowAction('Reject', () => onReject(selectedLetter.id, 'Rejected from workspace'))}
                 >
                   <i className="material-icons text-base mr-1">close</i> Reject
                 </button>
                 <button
-                  className="btn btn-primary btn-sm"
+                  className={getActionButtonClass(isApproved && !workflowLoading, 'btn-primary')}
                   disabled={!isApproved || !!workflowLoading}
                   onClick={() => runWorkflowAction('Issue', () => onIssue(selectedLetter.id, { job_reference: jobReference.trim() || undefined }))}
                 >
                   <i className="material-icons text-base mr-1">verified</i> Issue
                 </button>
                 <button
-                  className="btn btn-rose btn-sm"
+                  className={getActionButtonClass(isIssued && !workflowLoading, 'btn-rose')}
                   disabled={!isIssued || !!workflowLoading}
                   onClick={() => runWorkflowAction('Print', () => onPrint(selectedLetter.id, { job_reference: jobReference.trim() || undefined }))}
                 >
@@ -433,7 +632,27 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
             </div>
 
             <div className="flex gap-4">
-              <button className="btn btn-link btn-sm font-bold uppercase" onClick={() => setShowAudit(true)}>
+              <button className="btn btn-link btn-sm font-bold uppercase" onClick={async () => {
+                setShowAudit(true);
+                try {
+                  if (!selectedLetter?.id) {
+                    setAuditLogs([]);
+                    return;
+                  }
+                  const sessionResult = await auth.getSession();
+                  const token = sessionResult.data.session?.access_token || auth.getAccessToken();
+                  const res = await fetch(`${API_BASE}/letters/${selectedLetter.id}/audit-logs`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
+                  if (res.ok) {
+                    setAuditLogs(await res.json());
+                  } else {
+                    setAuditLogs([]);
+                  }
+                } catch {
+                  setAuditLogs([]);
+                }
+              }}>
                 <i className="material-icons text-base mr-1">history</i> View Audit Trail
               </button>
             </div>
@@ -448,13 +667,18 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
           {selectedLetter && (
             <div className="card mt-8 shadow-none border border-gray-100 bg-gray-50/50">
               <div className="card-body">
-                <h4 className="font-bold text-gray-700 uppercase text-xs mb-4">Approver Checklist</h4>
+                <h4 className="font-bold text-gray-700 uppercase text-xs mb-4">Department Approvals</h4>
                 <div className="space-y-3">
                   {(selectedLetter.letter_approver_assignments || []).map((assignment: any) => {
-                    const displayLabel = approverLookup.get(assignment.approver_id)?.label || formatApproverFallback(assignment.approver_id);
+                    const approver = approverLookup.get(assignment.approver_id);
+                    const displayLabel = approver?.label || formatApproverFallback(assignment.approver_id);
+                    const roleLabel = approver && approver.roles.length > 0 ? approver.roles.join(', ') : 'Assigned approver';
                     return (
                       <div key={assignment.id} className="flex items-center justify-between text-xs p-2 bg-white rounded border border-gray-100">
-                        <span className="font-medium">{displayLabel}</span>
+                        <span className="font-medium">
+                          {displayLabel}
+                          <span className="block text-[10px] uppercase text-gray-400 font-bold mt-0.5">{roleLabel}</span>
+                        </span>
                         <span className={`font-bold uppercase px-2 py-0.5 rounded ${assignment.decision === 'APPROVED' ? 'bg-success text-white' : assignment.decision === 'REJECTED' ? 'bg-danger text-white' : 'bg-gray-200 text-gray-600'}`}>
                           {assignment.decision}
                         </span>
@@ -475,10 +699,10 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
             <p className="card-category">Action required from you.</p>
           </div>
           <div className="card-body p-4 space-y-3">
-            {pendingApprovals.length === 0 ? (
+            {pendingTaskLetters.length === 0 ? (
               <div className="py-8 text-center text-gray-400 text-xs italic">No pending items.</div>
             ) : (
-              pendingApprovals.map((letter) => (
+              pendingTaskLetters.map((letter) => (
                 <button
                   key={letter.id}
                   type="button"
@@ -488,8 +712,8 @@ export function LetterWorkspace({ selectedId, onSelectLetter, letters, tags, aud
                   <p className="text-sm font-bold text-gray-700">{letter.title || 'Untitled'}</p>
                   <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{new Date(letter.updated_at || letter.created_at).toLocaleString()}</p>
                   <div className="mt-2">
-                    <span className="px-2 py-0.5 bg-warning text-white text-[9px] font-bold rounded uppercase shadow-sm">
-                      {letter.approval_summary?.pending ?? 0} Pending
+                    <span className={`px-2 py-0.5 text-white text-[9px] font-bold rounded uppercase shadow-sm ${letter.status === 'DRAFT' ? 'bg-info' : 'bg-warning'}`}>
+                      {letter.status === 'DRAFT' ? 'Draft' : `${letter.approval_summary?.pending ?? 0} Pending Approvers`}
                     </span>
                   </div>
                 </button>
