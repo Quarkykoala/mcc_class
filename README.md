@@ -6,7 +6,8 @@ It is built as a monorepo:
 - `apps/api` is the Express + TypeScript API
 - `apps/web` is the React + Vite frontend
 - `apps/shared` contains shared enums and workflow constants
-- `mysql/schema.sql` contains the MySQL schema and seed data shape
+- `mysql/schema.sql` contains the main MySQL schema
+- `mysql/MCC_LETTER_MODULE_SCHEMA.sql` is the client/server handoff schema file
 
 The active product scope in this repo is the `COMPANY` letter workflow.
 
@@ -176,7 +177,18 @@ Typical expectations:
 - `APPROVER` can approve assigned submitted letters
 - `ISSUER` can issue approved letters
 
-In local demo mode, the system is intentionally more forgiving to make testing possible.
+For a client/server deployment, keep demo mode disabled and create real users/roles explicitly.
+
+## Demo And Reference Links
+
+Current reference demo:
+- Web: `https://mcc-class-demo-web.vercel.app`
+- API: `https://mcc-class-demo-api.vercel.app/api`
+
+This Vercel deployment is a demo/reference environment. It is useful for trying the workflow and understanding the product, but final client use should be deployed on an MCC-approved server/environment with real database credentials and real user access.
+
+Repository branch for the current handoff:
+- `codex/material-theme-db-fixes`
 
 ## Local Setup
 
@@ -206,7 +218,8 @@ JWT_SECRET=dev-secret-change-in-production
 JWT_EXPIRES_IN=7d
 PORT=3000
 CLIENT_URL=http://localhost:5173
-DEMO_MODE=true
+ALLOW_REGISTRATION=false
+DEMO_MODE=false
 ```
 
 If you are using XAMPP, this usually means:
@@ -221,6 +234,7 @@ Create `apps/web/.env`:
 
 ```env
 VITE_API_URL=http://localhost:3000/api
+VITE_DEMO_AUTO_LOGIN=false
 ```
 
 ## Database Setup
@@ -235,6 +249,12 @@ Or apply the schema directly:
 
 ```bash
 mysql -u root -p mcc_letters < mysql/schema.sql
+```
+
+For client/server handoff, use:
+
+```bash
+mysql -u <user> -p < mysql/MCC_LETTER_MODULE_SCHEMA.sql
 ```
 
 Smoke-check the DB:
@@ -264,7 +284,7 @@ Local URLs:
 
 ## Demo Login
 
-Default local demo account:
+Default local demo account, if seeded for a private demo environment:
 - Email: `admin@mcc.local`
 - Password: `admin123`
 
@@ -326,6 +346,9 @@ npm run test:web
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `POST /api/register`
+- `POST /api/login`
+- `GET /api/me`
 
 ### Letter endpoints
 
@@ -344,7 +367,7 @@ npm run test:web
 
 - `GET /api/approvers`
 - `GET /api/approvals/pending`
-- attachments, audit, analytics, acknowledgements, demo, bulk, and committee routes under `/api`
+- attachments, audit, analytics, acknowledgements, tags, reprints, email links, and committee routes under `/api`
 
 ## Request Flow
 
@@ -455,7 +478,7 @@ Check:
 ### 2. You can log in but workflow actions behave like the wrong user
 
 Check:
-- `DEMO_MODE=true`
+- `DEMO_MODE` setting
 - current API process has been restarted after auth changes
 - sign out and sign back in after backend auth fixes
 
