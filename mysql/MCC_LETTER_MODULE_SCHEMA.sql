@@ -1,7 +1,18 @@
--- MCC Letter Issuance System - MySQL Schema
--- Converted from PostgreSQL/Supabase migrations
+-- MCC Letter Module - MySQL schema for server setup
+-- Prepared for MCC deployment handoff.
+--
+-- Instructions:
+-- 1. Run this file on the MySQL server.
+-- 2. If the database name should be different, change `mcc_letters` below before running.
+-- 3. This file creates schema only. It does not insert demo letters or demo users.
+-- 4. After running it, please share host, port, database name, username, and password.
 
--- 1. Users (replaces Supabase auth.users)
+CREATE DATABASE IF NOT EXISTS `mcc_letters`
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE `mcc_letters`;
+
 CREATE TABLE IF NOT EXISTS users (
     id CHAR(36) PRIMARY KEY,
     email VARCHAR(191) NOT NULL UNIQUE,
@@ -10,7 +21,6 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 2. User Roles
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id CHAR(36) NOT NULL,
     role VARCHAR(20) NOT NULL,
@@ -19,7 +29,6 @@ CREATE TABLE IF NOT EXISTS user_roles (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
--- 3. Departments
 CREATE TABLE IF NOT EXISTS departments (
     id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -28,7 +37,6 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 CREATE INDEX idx_departments_context ON departments(context);
 
--- 4. Tags
 CREATE TABLE IF NOT EXISTS tags (
     id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -37,7 +45,6 @@ CREATE TABLE IF NOT EXISTS tags (
 );
 CREATE INDEX idx_tags_context ON tags(context);
 
--- 5. Committees
 CREATE TABLE IF NOT EXISTS committees (
     id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -46,7 +53,6 @@ CREATE TABLE IF NOT EXISTS committees (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Committee Members
 CREATE TABLE IF NOT EXISTS committee_members (
     committee_id CHAR(36) NOT NULL,
     user_id CHAR(36) NOT NULL,
@@ -56,7 +62,6 @@ CREATE TABLE IF NOT EXISTS committee_members (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
--- 7. Letters
 CREATE TABLE IF NOT EXISTS letters (
     id CHAR(36) PRIMARY KEY,
     context VARCHAR(20) NOT NULL,
@@ -93,7 +98,6 @@ CREATE INDEX idx_letters_status ON letters(status);
 CREATE INDEX idx_letters_created_by ON letters(created_by);
 CREATE INDEX idx_letters_status_department ON letters(status, department_id);
 
--- 8. Letter Tags (Many-to-Many)
 CREATE TABLE IF NOT EXISTS letter_tags (
     letter_id CHAR(36) NOT NULL,
     tag_id CHAR(36) NOT NULL,
@@ -102,7 +106,6 @@ CREATE TABLE IF NOT EXISTS letter_tags (
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
 
--- 9. Letter Versions (Immutable snapshots)
 CREATE TABLE IF NOT EXISTS letter_versions (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) NOT NULL,
@@ -119,7 +122,6 @@ CREATE TABLE IF NOT EXISTS letter_versions (
 );
 CREATE INDEX idx_letter_versions_letter ON letter_versions(letter_id);
 
--- 10. Letter Approver Assignments
 CREATE TABLE IF NOT EXISTS letter_approver_assignments (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) NOT NULL,
@@ -138,7 +140,6 @@ CREATE INDEX idx_letter_assignments_letter ON letter_approver_assignments(letter
 CREATE INDEX idx_letter_assignments_approver ON letter_approver_assignments(approver_id);
 CREATE INDEX idx_letter_assignments_approver_decision ON letter_approver_assignments(approver_id, decision);
 
--- 11. Tag Default Approvers
 CREATE TABLE IF NOT EXISTS tag_default_approvers (
     id CHAR(36) PRIMARY KEY,
     tag_id CHAR(36) NOT NULL,
@@ -150,7 +151,6 @@ CREATE TABLE IF NOT EXISTS tag_default_approvers (
 
 CREATE INDEX idx_tag_default_approvers_tag ON tag_default_approvers(tag_id);
 
--- 12. Approvals
 CREATE TABLE IF NOT EXISTS approvals (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) NOT NULL,
@@ -164,7 +164,6 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE INDEX idx_approvals_letter ON approvals(letter_id);
 CREATE INDEX idx_approvals_created_at ON approvals(created_at DESC);
 
--- 13. Committee Approvals
 CREATE TABLE IF NOT EXISTS committee_approvals (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) NOT NULL,
@@ -178,7 +177,6 @@ CREATE TABLE IF NOT EXISTS committee_approvals (
 );
 CREATE INDEX idx_committee_approvals_letter ON committee_approvals(letter_id);
 
--- 14. Issuances
 CREATE TABLE IF NOT EXISTS issuances (
     id CHAR(36) PRIMARY KEY,
     letter_version_id CHAR(36) NOT NULL,
@@ -196,7 +194,6 @@ CREATE TABLE IF NOT EXISTS issuances (
 );
 CREATE INDEX idx_issuances_letter_version ON issuances(letter_version_id);
 
--- 15. Print Audits
 CREATE TABLE IF NOT EXISTS print_audits (
     id CHAR(36) PRIMARY KEY,
     issuance_id CHAR(36) NOT NULL,
@@ -209,7 +206,6 @@ CREATE TABLE IF NOT EXISTS print_audits (
     FOREIGN KEY (printed_by) REFERENCES users(id)
 );
 
--- 16. Print Requests
 CREATE TABLE IF NOT EXISTS print_requests (
     id CHAR(36) PRIMARY KEY,
     issuance_id CHAR(36) NOT NULL,
@@ -226,7 +222,6 @@ CREATE TABLE IF NOT EXISTS print_requests (
 CREATE INDEX idx_print_requests_status ON print_requests(status);
 CREATE INDEX idx_print_requests_requester ON print_requests(requester_id);
 
--- 17. Acknowledgements
 CREATE TABLE IF NOT EXISTS acknowledgements (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) NOT NULL,
@@ -239,7 +234,6 @@ CREATE TABLE IF NOT EXISTS acknowledgements (
     FOREIGN KEY (captured_by) REFERENCES users(id)
 );
 
--- 18. Email Links
 CREATE TABLE IF NOT EXISTS email_links (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36) DEFAULT NULL,
@@ -257,7 +251,6 @@ CREATE TABLE IF NOT EXISTS email_links (
 CREATE INDEX idx_email_links_letter ON email_links(letter_id);
 CREATE INDEX idx_email_links_job_reference ON email_links(job_reference);
 
--- 19. Audit Logs (Append-Only)
 CREATE TABLE IF NOT EXISTS audit_logs (
     id CHAR(36) PRIMARY KEY,
     actor_id CHAR(36),
@@ -272,7 +265,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 
--- 20. User Departments (Visibility)
 CREATE TABLE IF NOT EXISTS user_departments (
     user_id CHAR(36) NOT NULL,
     department_id CHAR(36) NOT NULL,
@@ -281,7 +273,6 @@ CREATE TABLE IF NOT EXISTS user_departments (
     FOREIGN KEY (department_id) REFERENCES departments(id)
 );
 
--- 21. Auto-routing Rules
 CREATE TABLE IF NOT EXISTS auto_routing_rules (
     id CHAR(36) PRIMARY KEY,
     department_id CHAR(36),
@@ -296,7 +287,6 @@ CREATE TABLE IF NOT EXISTS auto_routing_rules (
 CREATE INDEX idx_auto_routing_rules_dept ON auto_routing_rules(department_id);
 CREATE INDEX idx_auto_routing_rules_tag ON auto_routing_rules(tag_id);
 
--- 22. Letter Attachments
 CREATE TABLE IF NOT EXISTS letter_attachments (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36),
@@ -312,7 +302,6 @@ CREATE TABLE IF NOT EXISTS letter_attachments (
 
 CREATE INDEX idx_letter_attachments_letter ON letter_attachments(letter_id);
 
--- 23. Approval Deadlines
 CREATE TABLE IF NOT EXISTS approval_deadlines (
     id CHAR(36) PRIMARY KEY,
     letter_id CHAR(36),
@@ -327,8 +316,6 @@ CREATE TABLE IF NOT EXISTS approval_deadlines (
 CREATE INDEX idx_approval_deadlines_letter ON approval_deadlines(letter_id);
 CREATE INDEX idx_approval_deadlines_due ON approval_deadlines(due_at);
 
--- Letter number auto-increment helper (replaces PostgreSQL sequence)
--- We use a separate counter table since MySQL AUTO_INCREMENT only works on the PK
 CREATE TABLE IF NOT EXISTS letter_number_seq (
     id VARCHAR(50) PRIMARY KEY,
     next_val BIGINT NOT NULL DEFAULT 10001
